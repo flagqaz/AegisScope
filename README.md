@@ -59,6 +59,8 @@
 - 打包/混淆识别：Webpack、Vite/Rollup、Parcel、Browserify、Next.js、Nuxt、Angular、Umi/Dva，以及常见混淆和压缩特征。
 
 扫描结果会按漏洞严重性排序，危害最高的结果优先展示。
+<img width="2441" height="695" alt="image" src="https://github.com/user-attachments/assets/1c75acdb-9def-456d-9e9f-0902c18de1ee" />
+<img width="2485" height="504" alt="image" src="https://github.com/user-attachments/assets/befed54a-7fcd-4cab-8d4e-ac73d4ee384d" />
 
 ### 漏洞审计
 
