@@ -1,0 +1,115 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <title>玄镜 AegisScope 泄露扫描</title>
+  <link rel="stylesheet" href="scan.css">
+</head>
+<body>
+  <header class="page-header">
+    <div class="brand">
+      <div class="mark" aria-hidden="true"><img src="icons/icon48.png" alt=""></div>
+      <div>
+        <h1>玄镜 AegisScope 泄露扫描 <span class="version">V1.0.0</span></h1>
+        <span id="origin" class="origin"></span>
+      </div>
+    </div>
+    <div class="actions">
+      <button id="rescan">重新扫描</button>
+      <button id="exportJson">导出 JSON</button>
+      <button id="exportMd">导出 Markdown</button>
+    </div>
+  </header>
+
+  <section class="summary" id="summary">
+    <div class="card score">
+      <div class="label">综合风险</div>
+      <div class="value" id="riskLevel">扫描中...</div>
+      <div class="sub" id="riskScore"></div>
+    </div>
+    <div class="card sev critical">
+      <div class="label">严重 <span class="hint">可利用</span></div>
+      <div class="value" id="cnt-critical">0</div>
+      <div class="sub" id="cnt-critical-conf">-</div>
+    </div>
+    <div class="card sev high">
+      <div class="label">高危 <span class="hint">可利用</span></div>
+      <div class="value" id="cnt-high">0</div>
+      <div class="sub" id="cnt-high-conf">-</div>
+    </div>
+    <div class="card sev medium">
+      <div class="label">中危</div>
+      <div class="value" id="cnt-medium">0</div>
+      <div class="sub" id="cnt-medium-conf">-</div>
+    </div>
+    <div class="card sev low">
+      <div class="label">低危</div>
+      <div class="value" id="cnt-low">0</div>
+    </div>
+    <div class="card meta">
+      <div class="label">置信度</div>
+      <div class="value" id="conf-actionable">0</div>
+      <div class="sub" id="conf-breakdown">已确认 / 大概率 / 疑似</div>
+    </div>
+    <div class="card meta">
+      <div class="label">扫描进度</div>
+      <div class="value" id="progress">-</div>
+      <div class="sub" id="progressSub"></div>
+    </div>
+  </section>
+
+  <section class="card-block">
+    <h2>代码资产画像</h2>
+    <div class="row"><span class="k">加密库</span><span id="detected-libs" class="v">-</span></div>
+    <div class="row"><span class="k">加密算法</span><span id="detected-algos" class="v">-</span></div>
+    <div class="row"><span class="k">解密/验证方式</span><span id="detected-decryptions" class="v">-</span></div>
+    <div class="row"><span class="k">打包器/框架</span><span id="detected-bundlers" class="v">-</span></div>
+    <div class="row"><span class="k">前端框架/库</span><span id="detected-frameworks" class="v">-</span></div>
+    <div class="row"><span class="k">混淆/压缩特征</span><span id="detected-obfuscation" class="v">-</span></div>
+    <div class="row"><span class="k">接口线索</span><span id="detected-apis" class="v">-</span></div>
+    <div class="row"><span class="k">路由线索</span><span id="detected-routes" class="v">-</span></div>
+    <div class="row"><span class="k">模块路径</span><span id="detected-modules" class="v">-</span></div>
+    <div class="row"><span class="k">弱算法/模式</span><span id="detected-weak" class="v">-</span></div>
+    <div class="row"><span class="k">其他暴露面</span><span id="detected-exposures" class="v">-</span></div>
+    <div class="row hint-row">画像信息用于辅助研判；漏洞结论以下方 Findings 为准。</div>
+  </section>
+
+  <section class="filters">
+    <input id="search" type="search" placeholder="搜索 finding、规则、文件或命中内容" />
+    <select id="severity">
+      <option value="all">全部严重度</option>
+      <option value="critical">严重</option>
+      <option value="high">高危</option>
+      <option value="medium">中危</option>
+      <option value="low">低危</option>
+    </select>
+    <select id="category">
+      <option value="all">全部类别</option>
+      <option value="secret">敏感凭证</option>
+      <option value="crypto-vuln">加解密漏洞</option>
+      <option value="hardcode">硬编码漏洞</option>
+      <option value="pii">个人信息</option>
+    </select>
+    <select id="confidence">
+      <option value="actionable">可利用 confirmed + likely</option>
+      <option value="confirmed">仅已确认</option>
+      <option value="all">全部含疑似</option>
+    </select>
+    <label class="chk"><input type="checkbox" id="groupByFile" checked /> 按文件分组</label>
+  </section>
+
+  <main id="results"></main>
+
+  <dialog id="viewer">
+    <header>
+      <strong id="viewer-title"></strong>
+      <button id="viewer-close">关闭</button>
+    </header>
+    <pre id="viewer-content"></pre>
+  </dialog>
+
+  <script src="rules.js"></script>
+  <script src="analyzer.js"></script>
+  <script src="scan.js"></script>
+</body>
+</html>

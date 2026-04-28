@@ -1,0 +1,78 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <title>玄镜 AegisScope Vue 控制台</title>
+  <link rel="stylesheet" href="vue-tools.css">
+</head>
+<body>
+  <header class="page-header">
+    <div class="brand">
+      <div class="mark" aria-hidden="true"><img src="icons/icon48.png" alt=""></div>
+      <div>
+        <h1>玄镜 AegisScope Vue 控制台 <span class="version">V1.0.0</span></h1>
+        <span id="origin" class="origin"></span>
+      </div>
+    </div>
+    <div class="actions">
+      <button id="analyze" class="primary">分析实例</button>
+      <button id="restore" class="danger">恢复</button>
+      <button id="exportJson">导出 JSON</button>
+    </div>
+  </header>
+
+  <section class="summary">
+    <div class="card">
+      <div class="label">Vue</div>
+      <div class="value" id="vueStatus">-</div>
+      <div class="sub" id="vueMeta">-</div>
+    </div>
+    <div class="card">
+      <div class="label">Router</div>
+      <div class="value" id="routerStatus">-</div>
+      <div class="sub" id="routerMeta">-</div>
+    </div>
+    <div class="card">
+      <div class="label">Routes</div>
+      <div class="value" id="routeCount">0</div>
+      <div class="sub" id="sensitiveCount">0 sensitive</div>
+    </div>
+    <div class="card">
+      <div class="label">Guards</div>
+      <div class="value" id="guardCount">0</div>
+      <div class="sub" id="guardMeta">-</div>
+    </div>
+  </section>
+
+  <section class="grid">
+    <div class="panel">
+      <div class="panel-head">
+        <h2>路由列表</h2>
+        <input id="routeSearch" type="search" placeholder="过滤 path / name / meta">
+      </div>
+      <div id="routes" class="route-list"></div>
+    </div>
+
+    <div class="panel">
+      <div class="panel-head">
+        <h2>运行时详情</h2>
+        <span id="status" class="status">就绪</span>
+      </div>
+      <pre id="details"></pre>
+    </div>
+  </section>
+
+  <dialog id="confirmDialog">
+    <header>
+      <strong id="confirmTitle">确认操作</strong>
+    </header>
+    <p id="confirmText"></p>
+    <div class="dialog-actions">
+      <button id="confirmCancel">取消</button>
+      <button id="confirmOk" class="danger">确认</button>
+    </div>
+  </dialog>
+
+  <script src="vue-tools.js"></script>
+</body>
+</html>

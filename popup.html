@@ -1,0 +1,102 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <title>玄镜 AegisScope</title>
+  <link rel="stylesheet" href="popup.css">
+</head>
+<body>
+  <header class="toolbar">
+    <div class="title-row">
+      <div class="mark" aria-hidden="true"><img src="icons/icon48.png" alt=""></div>
+      <div class="title-copy">
+        <h1>玄镜 AegisScope</h1>
+        <p>前端代码资产采集、泄露扫描与漏洞审计工作台</p>
+      </div>
+      <div class="title-badges">
+        <span class="version">V1.0.0</span>
+        <span id="count" class="badge">0</span>
+      </div>
+    </div>
+    <div class="search-row">
+      <input id="search" type="search" placeholder="过滤 URL、域名、关键字" />
+      <select id="filterType">
+        <option value="all">全部</option>
+        <option value="external">外部文件</option>
+        <option value="inline">内联脚本</option>
+        <option value="thirdparty">第三方</option>
+      </select>
+    </div>
+    <div class="action-row">
+      <button id="refresh" title="重新扫描">刷新</button>
+      <button id="downloadAll" title="打包下载代码资源">打包下载</button>
+      <button id="securityScan" class="primary" title="对代码资源运行泄露扫描">泄露扫描</button>
+      <button id="vulnScan" title="源码审计与低风险接口漏扫">漏扫审计</button>
+      <button id="vueTools" title="Vue Router runtime tools">Vue 工具</button>
+      <button id="clear" class="danger" title="清空当前标签页记录">清空</button>
+    </div>
+  </header>
+
+  <main>
+    <ul id="list"></ul>
+    <div id="empty" class="empty">暂无代码资源。请刷新当前页面，或点击“刷新”重新采集。</div>
+  </main>
+
+  <footer>
+    <span id="status">就绪</span>
+  </footer>
+
+  <dialog id="termsDialog" class="terms-dialog">
+    <div class="terms-head">
+      <div class="mark mini" aria-hidden="true"><img src="icons/icon48.png" alt=""></div>
+      <div>
+        <strong>玄镜 AegisScope 使用许可与免责声明</strong>
+        <span>V1.0.0</span>
+      </div>
+    </div>
+    <div class="terms-body">
+      <p>请在安装并使用本工具前，审慎阅读并充分理解以下条款。未勾选同意前，插件不会启用任何采集、扫描、下载、验证或审计功能。</p>
+      <p>本插件具备代码资产采集、泄露扫描、漏洞审计、API 探测、路由运行时分析等能力。使用过程中可能对目标网站造成 <strong class="risk">访问日志增加、接口请求增加、触发风控告警、触发验证码或登录失效、造成业务状态变化、业务状态不可用</strong> 等风险。请仅在测试环境或明确授权范围内使用，您在使用本插件的过程中存在任何非法行为，您需自行承担相应后果，我们将不承担任何法律及连带责任。</p>
+      <p>在执行 API 批量测试、漏洞验证、POST/PUT/PATCH/DELETE 等请求方法、路由守卫绕过或任何可能改变业务状态的操作时，可能导致 <strong class="risk">数据变更、数据误删除、审计日志产生、告警触发、权限状态异常或业务流程被干扰</strong>。请仅在测试环境或明确授权范围内使用，您在使用本插件的过程中存在任何非法行为，您需自行承担相应后果，我们将不承担任何法律及连带责任。</p>
+      <p>本插件仅面向合法授权的行为。在使用本插件进行检测时，您应确保该行为符合当地的法律法规，并且已经取得了足够的授权。</p>
+      <p>在安装并使用本插件前，请务必审慎阅读、充分理解各条款内容，并接受本协议所有条款，否则，请不要使用本插件。您的使用行为或者您以其他任何明示或者默示方式表示接受本协议的，即视为您已阅读并同意本协议的约束。</p>
+    </div>
+    <label class="terms-check">
+      <input id="termsAcceptCheck" type="checkbox">
+      <span>我已阅读、理解并同意上述使用许可与免责声明，并承诺仅在合法授权范围内使用本插件。</span>
+    </label>
+    <div class="terms-actions">
+      <button id="termsDecline" class="danger">不同意并退出</button>
+      <button id="termsAgree" class="primary" disabled>同意并启用</button>
+    </div>
+  </dialog>
+
+  <template id="row-tpl">
+    <li class="row">
+      <div class="row-main">
+        <input type="checkbox" class="select" />
+        <div class="info">
+          <div class="url" title=""></div>
+          <div class="meta"></div>
+        </div>
+      </div>
+      <div class="row-actions">
+        <button class="copy">复制</button>
+        <button class="open">打开</button>
+        <button class="download">下载</button>
+        <button class="view">查看</button>
+      </div>
+    </li>
+  </template>
+
+  <dialog id="viewer">
+    <header>
+      <strong id="viewer-title">脚本内容</strong>
+      <button id="viewer-close">关闭</button>
+    </header>
+    <pre id="viewer-content"></pre>
+  </dialog>
+
+  <script src="popup.js"></script>
+</body>
+</html>

@@ -1,0 +1,98 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <title>玄镜 AegisScope 漏洞审计</title>
+  <link rel="stylesheet" href="vuln-scan.css">
+</head>
+<body>
+  <header class="page-header">
+    <div class="brand">
+      <div class="mark" aria-hidden="true"><img src="icons/icon48.png" alt=""></div>
+      <div>
+        <h1>玄镜 AegisScope 漏洞审计 <span class="version">V1.0.0</span></h1>
+        <span id="origin" class="origin"></span>
+      </div>
+    </div>
+    <div class="actions">
+      <label>深度 <input id="depth" type="number" min="1" max="4" value="2"></label>
+      <label>并发 <input id="concurrency" type="number" min="1" max="8" value="4"></label>
+      <label class="check"><input id="apiTest" type="checkbox" checked> API 探测</label>
+      <button id="start" class="primary">开始漏扫</button>
+      <button id="stop">停止</button>
+      <button id="exportJson">导出 JSON</button>
+      <button id="exportMd">导出 Markdown</button>
+    </div>
+  </header>
+
+  <section class="summary">
+    <div class="card score">
+      <div class="label">风险等级</div>
+      <div class="value" id="riskLevel">待扫描</div>
+      <div class="sub" id="riskScore">score 0</div>
+    </div>
+    <div class="card">
+      <div class="label">代码文件</div>
+      <div class="value" id="fileCount">0</div>
+      <div class="sub" id="codeSize">0 KB</div>
+    </div>
+    <div class="card">
+      <div class="label">接口资产</div>
+      <div class="value" id="apiCount">0</div>
+      <div class="sub" id="apiTested">0 tested</div>
+    </div>
+    <div class="card">
+      <div class="label">审计发现</div>
+      <div class="value" id="findingCount">0</div>
+      <div class="sub" id="progress">就绪</div>
+    </div>
+  </section>
+
+  <section class="matrix">
+    <div class="panel">
+      <div class="panel-head">
+        <h2>漏洞发现</h2>
+        <div class="filters">
+          <input id="search" type="search" placeholder="过滤漏洞、接口、文件">
+          <select id="severity">
+            <option value="all">全部风险</option>
+            <option value="critical">严重</option>
+            <option value="high">高危</option>
+            <option value="medium">中危</option>
+            <option value="low">低危</option>
+            <option value="info">提示</option>
+          </select>
+        </div>
+      </div>
+      <div id="findings" class="findings"></div>
+    </div>
+
+    <div class="panel">
+      <div class="panel-head">
+        <h2>API 批量测试</h2>
+        <div class="api-head-actions">
+          <span id="apiStatus" class="status">未开始</span>
+          <button id="runApiTests">批量测试 API</button>
+        </div>
+      </div>
+      <div class="api-controls">
+        <div class="method-pills">
+          <label><input type="checkbox" name="apiMethod" value="GET" checked> GET</label>
+          <label><input type="checkbox" name="apiMethod" value="POST" checked> POST</label>
+          <label><input type="checkbox" name="apiMethod" value="HEAD"> HEAD</label>
+          <label><input type="checkbox" name="apiMethod" value="OPTIONS"> OPTIONS</label>
+          <label><input type="checkbox" name="apiMethod" value="PUT"> PUT</label>
+          <label><input type="checkbox" name="apiMethod" value="PATCH"> PATCH</label>
+          <label><input type="checkbox" name="apiMethod" value="DELETE"> DELETE</label>
+        </div>
+        <textarea id="apiBody" spellcheck="false" placeholder='POST/PUT/PATCH 请求体，默认 {}'>{}</textarea>
+      </div>
+      <div id="apis" class="api-list"></div>
+    </div>
+  </section>
+
+  <script src="rules.js"></script>
+  <script src="analyzer.js"></script>
+  <script src="vuln-scan.js"></script>
+</body>
+</html>
