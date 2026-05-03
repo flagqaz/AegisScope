@@ -362,6 +362,101 @@ dialog#viewer pre {
   color: #d8f7ff;
 }
 
+.save-dialog {
+  width: 520px;
+  max-width: calc(100vw - 18px);
+  padding: 0;
+  border: 1px solid rgba(37,214,255,0.34);
+  border-radius: 10px;
+  background: linear-gradient(145deg, rgba(6,18,30,0.98), rgba(3,9,18,0.98));
+  color: var(--ink);
+  box-shadow: 0 24px 70px rgba(0,0,0,0.55), 0 0 34px rgba(37,214,255,0.16);
+}
+.save-dialog::backdrop {
+  background: rgba(2,8,15,0.68);
+}
+.save-dialog header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 11px 12px;
+  border-bottom: 1px solid rgba(37,214,255,0.26);
+  background: rgba(5,11,19,0.82);
+}
+.save-dialog header strong {
+  font-size: 14px;
+}
+.save-dialog header button {
+  min-height: 26px;
+  padding: 4px 9px;
+  font-size: 11px;
+}
+.save-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+  padding: 12px;
+}
+.save-card {
+  min-height: 132px;
+  display: grid;
+  align-content: start;
+  gap: 8px;
+  padding: 13px;
+  text-align: left;
+  white-space: normal;
+  border-color: rgba(97,222,255,0.22);
+  background: linear-gradient(145deg, rgba(37,214,255,0.08), rgba(8,22,35,0.88));
+}
+.save-card:hover {
+  transform: translateY(-1px);
+  border-color: rgba(102,242,201,0.42);
+  background: linear-gradient(145deg, rgba(102,242,201,0.10), rgba(8,22,35,0.9));
+}
+.save-card strong {
+  font-size: 14px;
+  color: #e8fbff;
+}
+.save-card span:last-child {
+  color: var(--muted);
+  line-height: 1.5;
+  font-size: 12px;
+}
+.save-kicker {
+  width: fit-content;
+  padding: 2px 8px;
+  border: 1px solid rgba(102,242,201,0.32);
+  border-radius: 999px;
+  color: #a8ffe8;
+  background: rgba(102,242,201,0.08);
+  font-family: var(--mono);
+  font-size: 11px;
+}
+.save-warning {
+  margin: 0 12px 10px;
+  padding: 9px 10px;
+  border: 1px solid rgba(255,87,87,0.42);
+  border-radius: 7px;
+  background: rgba(255,87,87,0.10);
+  color: #ff5757;
+  font-weight: 800;
+  text-align: center;
+  text-shadow: 0 0 14px rgba(255,87,87,0.24);
+}
+.save-progress {
+  min-height: 34px;
+  margin: 0 12px 12px;
+  padding: 8px 10px;
+  border: 1px solid rgba(97,222,255,0.16);
+  border-radius: 7px;
+  background: rgba(5,11,19,0.52);
+  color: var(--muted);
+  font-family: var(--mono);
+  font-size: 11px;
+  line-height: 1.45;
+  overflow-wrap: anywhere;
+}
+
 .terms-dialog {
   width: 520px;
   max-width: calc(100vw - 18px);

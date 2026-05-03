@@ -20,6 +20,11 @@ const els = {
   termsAcceptCheck: document.getElementById('termsAcceptCheck'),
   termsAgree: document.getElementById('termsAgree'),
   termsDecline: document.getElementById('termsDecline'),
+  saveDialog: document.getElementById('saveDialog'),
+  saveClose: document.getElementById('saveClose'),
+  saveJsPackage: document.getElementById('saveJsPackage'),
+  saveHtmlSingle: document.getElementById('saveHtmlSingle'),
+  saveProgress: document.getElementById('saveProgress'),
   repoLink: document.getElementById('repoLink'),
   topAuthorLink: document.getElementById('topAuthorLink'),
   authorLink: document.getElementById('authorLink')
@@ -97,7 +102,14 @@ async function init() {
     await scanPage();
     await loadScripts();
   });
-  els.downloadAll.addEventListener('click', downloadAll);
+  els.downloadAll.addEventListener('click', openSaveDialog);
+  els.saveClose.addEventListener('click', () => els.saveDialog.close());
+  els.saveJsPackage.addEventListener('click', () => {
+    downloadAll();
+  });
+  els.saveHtmlSingle.addEventListener('click', () => {
+    saveSingleHtml();
+  });
   els.securityScan.addEventListener('click', openSecurityScan);
   els.vulnScan.addEventListener('click', openVulnScan);
   els.vueTools.addEventListener('click', openVueTools);
@@ -243,6 +255,7 @@ async function downloadOne(s) {
 
 async function downloadAll() {
   downloadFetchCache.clear();
+  setSaveProgress('JS 保存：正在收集页面代码...');
   setStatus('正在收集页面代码...');
   await scanPage();
   await loadScripts();
@@ -269,30 +282,48 @@ async function downloadAll() {
     resources.set(item.url, item);
   }
 
-  const queue = Array.from(resources.values());
+  const maxResources = 600;
+  const concurrency = 8;
+  const queue = Array.from(resources.values()).slice(0, maxResources);
   const queued = new Set(queue.map((item) => item.url));
   const enqueue = (url, kind = 'resource') => {
     if (!url || queued.has(url)) return;
+    if (queue.length >= maxResources) return;
     queued.add(url);
     queue.push({ url, kind, discovered: true });
   };
 
   let done = 0;
-  for (let i = 0; i < queue.length && i < 600; i++) {
-    const item = queue[i];
-    done++;
-    setStatus(`正在打包 ${done} / ${queue.length}: ${truncateText(item.url, 60)}`);
-    try {
-      const fetched = await fetchCodeResource(item.url);
-      const path = makeZipPath(item.url, item.kind || 'resource');
-      addZipFile(files, usedNames, path, fetched.data);
-      for (const related of discoverDownloadRelatedCodeUrls(fetched.text, item.url)) {
-        enqueue(related, /\.map(?:[?#]|$)/i.test(related) ? 'sourcemap' : 'script');
+  let cursor = 0;
+  let lastProgressPaint = 0;
+  const paintProgress = (item) => {
+    const now = Date.now();
+    if (now - lastProgressPaint < 140 && done < queue.length) return;
+    lastProgressPaint = now;
+    const progress = `正在并发打包 ${done} / ${queue.length}: ${truncateText(item?.url || '', 60)}`;
+    setSaveProgress(`JS 保存：${progress}`);
+    setStatus(progress);
+  };
+  const worker = async () => {
+    while (cursor < queue.length && cursor < maxResources) {
+      const item = queue[cursor++];
+      try {
+        const fetched = await fetchCodeResource(item.url);
+        const path = makeZipPath(item.url, item.kind || 'resource');
+        addZipFile(files, usedNames, path, fetched.data);
+        for (const related of discoverDownloadRelatedCodeUrls(fetched.text, item.url)) {
+          enqueue(related, /\.map(?:[?#]|$)/i.test(related) ? 'sourcemap' : 'script');
+        }
+      } catch (err) {
+        failures.push(`${item.url}: ${err.message}`);
+      } finally {
+        done++;
+        paintProgress(item);
       }
-    } catch (err) {
-      failures.push(`${item.url}: ${err.message}`);
     }
-  }
+  };
+  setSaveProgress(`JS 保存：开始并发打包，资源 ${queue.length} 个，并发 ${concurrency}`);
+  await Promise.all(Array.from({ length: Math.min(concurrency, Math.max(queue.length, 1)) }, worker));
 
   for (const s of scripts.filter((x) => x.inline)) {
     const hash = s.url.replace('inline:', '') || String(Date.now());
@@ -304,6 +335,7 @@ async function downloadAll() {
     return;
   }
 
+  setSaveProgress(`JS 保存：正在生成 ZIP，${files.length} 个文件...`);
   setStatus(`正在生成 ZIP，${files.length} 个文件...`);
   const zipBlob = createZip(files);
   const url = URL.createObjectURL(zipBlob);
@@ -312,7 +344,227 @@ async function downloadAll() {
     filename: `js-extractor/${safeName(host)}-code-${Date.now()}.zip`,
     saveAs: true
   });
+  setSaveProgress(`JS 保存完成：${files.length} 个文件，失败 ${failures.length} 个`);
   setStatus(`已生成 ZIP：${files.length} 个文件，失败 ${failures.length} 个`);
+}
+
+function openSaveDialog() {
+  setSaveProgress('请选择保存模块。');
+  if (typeof els.saveDialog.showModal === 'function') els.saveDialog.showModal();
+}
+
+async function saveSingleHtml() {
+  downloadFetchCache.clear();
+  setSaveProgress('HTML 保存：正在读取当前页面...');
+  setStatus('正在生成单文件 HTML...');
+  const snapshot = await getPageSnapshot();
+  const host = currentTabHost || snapshot.host || 'site';
+  if (!snapshot.html) {
+    const message = snapshot.error ? `HTML 保存失败: ${snapshot.error}` : '未获取到页面 HTML';
+    setSaveProgress(message);
+    setStatus(message);
+    return;
+  }
+
+  const result = await buildStandaloneHtmlDocument(snapshot, setSaveProgress);
+  const blob = new Blob([result.html], { type: 'text/html;charset=utf-8' });
+  const url = URL.createObjectURL(blob);
+  setSaveProgress('HTML 保存：正在触发下载...');
+  await chrome.downloads.download({
+    url,
+    filename: `js-extractor/${safeName(host)}-page-${Date.now()}.html`,
+    saveAs: true
+  });
+  setSaveProgress(`HTML 保存完成：内联 ${result.inlined} 项，保留外链 ${result.skipped} 项`);
+  setStatus(`已保存 HTML 单文件：内联 ${result.inlined} 项，保留外链 ${result.skipped} 项`);
+}
+
+async function buildStandaloneHtmlDocument(snapshot, onProgress = () => {}) {
+  const parser = new DOMParser();
+  const doc = parser.parseFromString(snapshot.html, 'text/html');
+  let inlined = 0;
+  let skipped = 0;
+  doc.querySelectorAll('meta[http-equiv]').forEach((meta) => {
+    if ((meta.getAttribute('http-equiv') || '').toLowerCase() === 'content-security-policy') meta.remove();
+  });
+  if (!doc.querySelector('meta[charset]')) {
+    const meta = doc.createElement('meta');
+    meta.setAttribute('charset', 'UTF-8');
+    doc.head.prepend(meta);
+  }
+  if (!doc.querySelector('base')) {
+    const base = doc.createElement('base');
+    base.href = snapshot.url || '';
+    doc.head.prepend(base);
+  }
+  doc.documentElement.setAttribute('data-aegisscope-standalone-html', 'true');
+
+  const stylesheets = Array.from(doc.querySelectorAll('link[rel~="stylesheet"][href]'));
+  for (const [index, link] of stylesheets.entries()) {
+    onProgress(`HTML 保存：正在内联样式 ${index + 1} / ${stylesheets.length}`);
+    try {
+      const href = absoluteUrl(link.getAttribute('href'), snapshot.url);
+      const css = await fetchTextForStandaloneHtml(href);
+      const style = doc.createElement('style');
+      style.textContent = rewriteCssUrls(css, href);
+      link.replaceWith(style);
+      inlined++;
+    } catch {
+      skipped++;
+    }
+  }
+
+  const externalScripts = Array.from(doc.querySelectorAll('script[src]'));
+  for (const [index, script] of externalScripts.entries()) {
+    onProgress(`HTML 保存：正在内联脚本 ${index + 1} / ${externalScripts.length}`);
+    try {
+      const src = absoluteUrl(script.getAttribute('src'), snapshot.url);
+      const text = await fetchTextForStandaloneHtml(src);
+      script.removeAttribute('src');
+      script.textContent = `\n${text}\n`;
+      inlined++;
+    } catch {
+      skipped++;
+    }
+  }
+
+  const mediaSelectors = [
+    ['img[src]', 'src'],
+    ['source[src]', 'src'],
+    ['video[poster]', 'poster'],
+    ['link[rel~="icon"][href]', 'href'],
+    ['link[rel="apple-touch-icon"][href]', 'href']
+  ];
+  const mediaNodes = mediaSelectors.flatMap(([selector, attr]) =>
+    Array.from(doc.querySelectorAll(selector)).map((node) => ({ node, attr }))
+  );
+  for (const [index, item] of mediaNodes.entries()) {
+    onProgress(`HTML 保存：正在内联媒体资源 ${index + 1} / ${mediaNodes.length}`);
+    const { node, attr } = item;
+    try {
+      const url = absoluteUrl(node.getAttribute(attr), snapshot.url);
+      const dataUrl = await fetchDataUrlForStandaloneHtml(url);
+      node.setAttribute(attr, dataUrl);
+      inlined++;
+    } catch {
+      skipped++;
+    }
+  }
+
+  const srcsetNodes = Array.from(doc.querySelectorAll('[srcset]'));
+  for (const [index, node] of srcsetNodes.entries()) {
+    onProgress(`HTML 保存：正在处理响应式图片 ${index + 1} / ${srcsetNodes.length}`);
+    const srcset = node.getAttribute('srcset') || '';
+    const rewritten = await rewriteSrcset(srcset, snapshot.url);
+    if (rewritten.changed) {
+      node.setAttribute('srcset', rewritten.value);
+      inlined += rewritten.inlined;
+      skipped += rewritten.skipped;
+    }
+  }
+
+  const marker = doc.createComment(` Saved by 玄镜 AegisScope · ${new Date().toISOString()} `);
+  doc.documentElement.insertBefore(marker, doc.head);
+  onProgress('HTML 保存：正在生成文件...');
+  return {
+    html: '<!DOCTYPE html>\n' + doc.documentElement.outerHTML,
+    inlined,
+    skipped
+  };
+}
+
+function setSaveProgress(message) {
+  if (els.saveProgress) els.saveProgress.textContent = message;
+}
+
+function absoluteUrl(raw, base) {
+  if (!raw || /^(?:data:|blob:|javascript:|mailto:|tel:)/i.test(raw)) throw new Error('unsupported url');
+  return new URL(raw, base).href;
+}
+
+async function fetchTextForStandaloneHtml(url) {
+  const fetched = await fetchBinaryForStandaloneHtml(url, 6 * 1024 * 1024);
+  return new TextDecoder('utf-8').decode(fetched.data);
+}
+
+async function fetchDataUrlForStandaloneHtml(url) {
+  const fetched = await fetchBinaryForStandaloneHtml(url, 5 * 1024 * 1024);
+  return `data:${fetched.type || guessMime(url)};base64,${bytesToBase64(fetched.data)}`;
+}
+
+async function fetchBinaryForStandaloneHtml(url, maxBytes) {
+  let sameOrigin = false;
+  try {
+    sameOrigin = currentTabHost && new URL(url).host === currentTabHost;
+  } catch { /* ignore */ }
+  const res = await fetch(url, { credentials: sameOrigin ? 'include' : 'omit', cache: 'force-cache' });
+  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  const data = new Uint8Array(await res.arrayBuffer());
+  if (data.length > maxBytes) throw new Error('resource too large');
+  return { data, type: (res.headers.get('content-type') || '').split(';')[0] };
+}
+
+function rewriteCssUrls(css, baseUrl) {
+  return String(css || '').replace(/url\(([^)]+)\)/gi, (all, value) => {
+    const raw = String(value || '').trim().replace(/^["']|["']$/g, '');
+    if (!raw || /^(?:data:|blob:|https?:)/i.test(raw)) return all;
+    try {
+      return `url("${new URL(raw, baseUrl).href}")`;
+    } catch {
+      return all;
+    }
+  });
+}
+
+async function rewriteSrcset(srcset, baseUrl) {
+  const parts = String(srcset || '').split(',').map((part) => part.trim()).filter(Boolean);
+  const out = [];
+  let inlined = 0;
+  let skipped = 0;
+  for (const part of parts) {
+    const tokens = part.split(/\s+/);
+    const rawUrl = tokens.shift();
+    try {
+      const url = absoluteUrl(rawUrl, baseUrl);
+      const dataUrl = await fetchDataUrlForStandaloneHtml(url);
+      out.push([dataUrl, ...tokens].join(' '));
+      inlined++;
+    } catch {
+      out.push(part);
+      skipped++;
+    }
+  }
+  return { value: out.join(', '), changed: inlined > 0, inlined, skipped };
+}
+
+function bytesToBase64(data) {
+  let binary = '';
+  const chunk = 0x8000;
+  for (let i = 0; i < data.length; i += chunk) {
+    binary += String.fromCharCode(...data.slice(i, i + chunk));
+  }
+  return btoa(binary);
+}
+
+function guessMime(url) {
+  const ext = (() => {
+    try {
+      return new URL(url).pathname.split('.').pop().toLowerCase();
+    } catch {
+      return '';
+    }
+  })();
+  return ({
+    png: 'image/png',
+    jpg: 'image/jpeg',
+    jpeg: 'image/jpeg',
+    gif: 'image/gif',
+    webp: 'image/webp',
+    svg: 'image/svg+xml',
+    ico: 'image/x-icon',
+    js: 'application/javascript',
+    css: 'text/css'
+  })[ext] || 'application/octet-stream';
 }
 
 async function getPageSnapshot() {

@@ -46,6 +46,8 @@
 - 支持继续发现运行时 chunk、SourceMap、框架资源、内联 SourceMap 中的源码文件。
 - 对同源资源使用当前页面上下文读取，提高登录态页面的代码资源获取成功率。
 
+![代码资产采集与保存](docs/images/code-assets.png)
+
 ### 泄露扫描
 
 泄露扫描用于发现前端代码中可能暴露的敏感数据、密钥、令牌和不安全加密用法。
@@ -61,8 +63,9 @@
 - 打包/混淆识别：Webpack、Vite/Rollup、Parcel、Browserify、Next.js、Nuxt、Angular、Umi/Dva，以及常见混淆和压缩特征。
 
 扫描结果会按漏洞严重性排序，危害最高的结果优先展示。
-<img width="2441" height="695" alt="image" src="https://github.com/user-attachments/assets/1c75acdb-9def-456d-9e9f-0902c18de1ee" />
-<img width="2485" height="504" alt="image" src="https://github.com/user-attachments/assets/befed54a-7fcd-4cab-8d4e-ac73d4ee384d" />
+![泄露扫描概览](docs/images/leak-scan-overview.png)
+
+![泄露扫描详情](docs/images/leak-scan-detail.png)
 
 ### 漏洞审计
 
@@ -102,6 +105,8 @@
 - 证据说明。
 - 复核或修复建议。
 
+![漏洞审计](docs/images/vuln-audit.png)
+
 ### API 批量测试
 
 漏洞审计模块内置 API 批量测试能力：
@@ -114,6 +119,8 @@
 - 每条 API 支持单独手动测试并选择 HTTP 方法。
 
 对于 POST、PUT、PATCH、DELETE 等可能触发业务变更的方法，插件会进行确认提示。请只在授权测试环境中使用。
+
+![API 批量测试](docs/images/api-batch-test.png)
 
 ### Vue Router 运行时分析
 
@@ -129,11 +136,13 @@ Vue 工具模块用于分析当前页面中的 Vue / Vue Router 运行时实例�
 
 说明：如果跳转后出现“登录失效，请重新登录”，通常说明服务端接口仍然校验登录态或会话状态。这种情况代表前端路由绕过不等于服务端鉴权绕过，需要继续复核接口返回状态。
 
+![Vue Router 运行时分析](docs/images/vue-router-tools.png)
+
 ## 页面与模块
 
 | 模块 | 文件 | 说明 |
 | --- | --- | --- |
-| 主弹窗 | `popup.html` | 代码资产列表、打包下载、入口导航 |
+| 主弹窗 | `popup.html` | 代码资产列表、JS/HTML 保存、入口导航 |
 | 泄露扫描 | `scan.html` | 敏感信息、密钥、加密风险、打包产物分析 |
 | 漏洞审计 | `vuln-scan.html` | 源码审计、API 测试、漏洞验证 |
 | Vue 控制台 | `vue-tools.html` | Vue Router 运行时分析与路由跳转 |
@@ -146,7 +155,7 @@ Vue 工具模块用于分析当前页面中的 Vue / Vue Router 运行时实例�
 
 ### Chrome / Edge 加载未打包扩展
 
-1. 解压 `玄镜 AegisScope_V1.0.0.zip`。
+1. 解压 `玄镜 AegisScope_V1.0.1.zip`。
 2. 打开浏览器扩展管理页面：
    - Chrome：`chrome://extensions`
    - Edge：`edge://extensions`
@@ -241,7 +250,7 @@ Vue 工具模块用于分析当前页面中的 Vue / Vue Router 运行时实例�
 | --- | --- |
 | `activeTab` | 获取当前活动标签页信息 |
 | `scripting` | 在当前页面执行采集、Vue 分析和路由验证脚本 |
-| `downloads` | 下载 ZIP、JSON、Markdown 报告 |
+| `downloads` | 下载 ZIP、HTML、JSON、Markdown 报告 |
 | `storage` | 保留基础状态或配置 |
 | `webRequest` | 记录页面加载的脚本资源 |
 | `<all_urls>` | 支持对不同站点进行授权测试 |
@@ -277,9 +286,11 @@ Vue 工具模块用于分析当前页面中的 Vue / Vue Router 运行时实例�
 - 页面使用 blob/data 动态构造脚本。
 - 浏览器扩展权限无法访问受保护页面。
 
-### 泄露扫描会下载图片和 CSS 吗？
+### 保存模块会下载图片和 CSS 吗？
 
-不会。当前逻辑会跳过 CSS、图片、字体、音视频等资源，重点采集 HTML、JavaScript、SourceMap、JSON、Vue/Svelte/TS 等代码类资源。
+JS 资源 ZIP 会跳过 CSS、图片、字体、音视频等非代码资源，重点采集 HTML、JavaScript、SourceMap、JSON、Vue/Svelte/TS 等代码类资源。
+
+HTML 单文件保存会尽量内联当前页面可访问的 CSS、图片、图标、脚本和响应式图片资源；受 CORS、登录态或资源大小限制无法获取的资源会保留原始外链。
 
 ## 版本记录
 
