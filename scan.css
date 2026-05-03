@@ -104,6 +104,45 @@ html, body {
   gap: 8px;
   flex-wrap: wrap;
   justify-content: flex-end;
+  align-items: center;
+}
+.repo-link {
+  width: 34px;
+  height: 34px;
+  display: grid;
+  place-items: center;
+  border: 1px solid rgba(102,242,201,0.36);
+  border-radius: 999px;
+  color: #e8fbff;
+  background: rgba(5,11,19,0.66);
+  text-decoration: none;
+}
+.repo-link svg {
+  width: 18px;
+  height: 18px;
+  fill: currentColor;
+}
+.repo-link:hover {
+  color: #03101a;
+  border-color: var(--accent-strong);
+  background: var(--accent-strong);
+}
+.top-author-link {
+  min-height: 34px;
+  display: inline-flex;
+  align-items: center;
+  padding: 6px 10px;
+  border: 1px solid rgba(102,242,201,0.28);
+  border-radius: 999px;
+  color: #a8ffe8;
+  background: rgba(102,242,201,0.08);
+  text-decoration: none;
+  font-size: 12px;
+}
+.top-author-link:hover {
+  color: #03101a;
+  border-color: var(--accent-strong);
+  background: var(--accent-strong);
 }
 .actions button,
 .finding .actions button,
@@ -234,6 +273,32 @@ dialog#viewer header button:hover {
 
 main {
   padding: 0 28px 36px;
+}
+.page-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin: 0 28px 18px;
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: rgba(5,11,19,0.58);
+  color: var(--muted);
+  font-size: 12px;
+}
+.author-link {
+  padding: 4px 9px;
+  border: 1px solid rgba(102,242,201,0.28);
+  border-radius: 999px;
+  color: #a8ffe8;
+  background: rgba(102,242,201,0.08);
+  text-decoration: none;
+}
+.author-link:hover {
+  color: #03101a;
+  border-color: var(--accent-strong);
+  background: var(--accent-strong);
 }
 
 .file-group {

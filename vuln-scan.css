@@ -81,6 +81,44 @@ h1 { margin: 0; font-size: 19px; line-height: 1.1; letter-spacing: 0; }
   text-overflow: ellipsis;
 }
 .actions { display: flex; flex-wrap: wrap; gap: 8px; justify-content: flex-end; align-items: center; }
+.repo-link {
+  width: 34px;
+  height: 34px;
+  display: grid;
+  place-items: center;
+  border: 1px solid rgba(102,242,201,0.36);
+  border-radius: 999px;
+  color: #e8fbff;
+  background: rgba(5,11,19,0.66);
+  text-decoration: none;
+}
+.repo-link svg {
+  width: 18px;
+  height: 18px;
+  fill: currentColor;
+}
+.repo-link:hover {
+  color: #03101a;
+  border-color: var(--mint);
+  background: var(--mint);
+}
+.top-author-link {
+  min-height: 34px;
+  display: inline-flex;
+  align-items: center;
+  padding: 6px 10px;
+  border: 1px solid rgba(102,242,201,0.28);
+  border-radius: 999px;
+  color: #a8ffe8;
+  background: rgba(102,242,201,0.08);
+  text-decoration: none;
+  font-size: 12px;
+}
+.top-author-link:hover {
+  color: #03101a;
+  border-color: var(--mint);
+  background: var(--mint);
+}
 label { color: var(--muted); font-size: 12px; }
 label input[type="number"] {
   width: 48px;
@@ -341,6 +379,66 @@ h2 { margin: 0; font-size: 14px; letter-spacing: 0; }
   font-family: var(--mono);
   font-size: 11px;
   white-space: pre-wrap;
+}
+.response-packages {
+  display: grid;
+  gap: 8px;
+}
+.response-package {
+  display: grid;
+  gap: 6px;
+  padding: 8px;
+  border: 1px solid rgba(102,242,201,0.16);
+  border-radius: 7px;
+  background: rgba(3,12,20,0.48);
+}
+.response-title {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  color: #dffcff;
+  font-size: 12px;
+  overflow-wrap: anywhere;
+}
+.response-package pre {
+  margin: 0;
+  max-height: 150px;
+  overflow: auto;
+  padding: 8px;
+  border-radius: 6px;
+  background: rgba(0,0,0,0.22);
+  color: #b9dce8;
+  font-family: var(--mono);
+  font-size: 11px;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.page-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin: 0 22px 18px;
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: rgba(5,11,19,0.58);
+  color: var(--muted);
+  font-size: 12px;
+}
+.author-link {
+  padding: 4px 9px;
+  border: 1px solid rgba(102,242,201,0.28);
+  border-radius: 999px;
+  color: #a8ffe8;
+  background: rgba(102,242,201,0.08);
+  text-decoration: none;
+}
+.author-link:hover {
+  color: #03101a;
+  border-color: var(--mint);
+  background: var(--mint);
 }
 @media (max-width: 980px) {
   .page-header { align-items: flex-start; flex-direction: column; }

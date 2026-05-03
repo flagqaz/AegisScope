@@ -1123,7 +1123,8 @@
     const detail = f.verification.detail || '';
     const at = f.verification.verifiedAt ? ` · ${new Date(f.verification.verifiedAt).toLocaleString()}` : '';
     const poc = f.verification.poc ? `<div class="preview">${escapeHtml(f.verification.poc)}</div>` : '';
-    return `<div class="verification"><span class="tag ${cls}">${escapeHtml(verifyLabel(status))}</span><span class="meta">${escapeHtml(detail + at)}</span></div>${poc}`;
+    const packages = renderProbeResponsePackages(f.verification.probe, { emptyText: '本次验证未产生 HTTP 返回包。' });
+    return `<div class="verification"><span class="tag ${cls}">${escapeHtml(verifyLabel(status))}</span><span class="meta">${escapeHtml(detail + at)}</span></div>${poc}${packages}`;
   }
 
   function canAutoVerifyFinding(finding) {
@@ -1184,7 +1185,7 @@
       const test = tested.get(api.url);
       const riskScore = apiRiskScore(api, test);
       const checksHtml = test ? renderApiChecks(test) : '<div class="meta">pending</div>';
-      const preview = firstPreview(test);
+      const packages = renderProbeResponsePackages(test, { emptyText: '暂未获取到返回包。' });
       const node = document.createElement('div');
       node.className = 'api';
       node.innerHTML = `
@@ -1198,7 +1199,7 @@
           </div>
         </div>
         <div class="checks">${checksHtml}</div>
-        ${preview ? `<div class="preview">${escapeHtml(preview)}</div>` : ''}`;
+        ${packages}`;
       node.querySelector('.manual-api-test')?.addEventListener('click', () => {
         const method = node.querySelector('.manual-method')?.value || 'GET';
         runSingleApiTest(api.url, method);
@@ -1229,6 +1230,84 @@
       if (c.auth?.preview) return `[${c.method} auth]\n${c.auth.preview}`;
     }
     return '';
+  }
+
+  function renderProbeResponsePackages(probeData, options = {}) {
+    const entries = collectResponsePackages(probeData);
+    if (!entries.length) {
+      return options.emptyText ? `<div class="response-packages"><div class="response-title">${escapeHtml(options.emptyText)}</div></div>` : '';
+    }
+    const html = entries.slice(0, options.limit || 18).map((entry) => {
+      const parts = (entry.responses || []).map((res) => {
+        const status = res.error ? `error=${res.error}` : `HTTP ${res.status || '-'}`;
+        const meta = [res.label, status, res.contentType, res.allow ? `Allow: ${res.allow}` : '']
+          .filter(Boolean)
+          .join(' · ');
+        const body = res.body || (res.error ? '' : '(无响应体或内容类型不可预览)');
+        return `<div class="response-part">
+          <div class="meta">${escapeHtml(meta)}</div>
+          <pre>${escapeHtml(body)}</pre>
+        </div>`;
+      }).join('');
+      return `<div class="response-package">
+        <div class="response-title">
+          <span class="tag">${escapeHtml(entry.method || '-')}</span>
+          <span>${escapeHtml(entry.label)}</span>
+        </div>
+        ${parts}
+      </div>`;
+    }).join('');
+    return `<div class="response-packages">${html}</div>`;
+  }
+
+  function collectResponsePackages(probeData) {
+    if (!probeData?.checks?.length) return [];
+    const entries = [];
+    for (const check of probeData.checks) {
+      if (check.auth || check.anon) {
+        entries.push({
+          method: check.method || '-',
+          label: probeData.url || '接口返回包',
+          responses: [
+            buildResponsePart('带登录态返回包', check.auth),
+            buildResponsePart('匿名返回包', check.anon)
+          ].filter(Boolean)
+        });
+        continue;
+      }
+      if (check.result) {
+        entries.push({
+          method: check.method || '-',
+          label: check.url || '验证返回包',
+          responses: [buildResponsePart('验证返回包', check.result)].filter(Boolean)
+        });
+      }
+    }
+    return entries;
+  }
+
+  function buildResponsePart(label, response) {
+    if (!response) return null;
+    return {
+      label,
+      status: response.status,
+      error: response.error,
+      contentType: response.contentType || response.type || '',
+      allow: response.allow || '',
+      body: response.preview || ''
+    };
+  }
+
+  function formatResponsePackages(probeData, maxBody = 600) {
+    const entries = collectResponsePackages(probeData);
+    return entries.map((entry) => {
+      const responses = (entry.responses || []).map((res) => {
+        const status = res.error ? `error=${res.error}` : `HTTP ${res.status || '-'}`;
+        const body = res.body ? res.body.replace(/\s+/g, ' ').slice(0, maxBody) : '(无响应体或内容类型不可预览)';
+        return `${res.label} ${status}\n${body}`;
+      }).join('\n');
+      return `${entry.method} ${entry.label}\n${responses}`;
+    }).join('\n\n');
   }
 
   function renderMethodOptions(selected = 'GET') {
@@ -1758,14 +1837,16 @@
       if (f.codeSnippet) lines.push(`- 代码片段:\n\`\`\`\n${String(f.codeSnippet).slice(0, 1200)}\n\`\`\``);
       if (f.verification) lines.push(`- 验证: ${verifyLabel(f.verification.status)} - ${f.verification.detail || ''}`);
       if (f.verification?.poc) lines.push(`- PoC:\n\`\`\`\n${String(f.verification.poc).slice(0, 1800)}\n\`\`\``);
+      const verificationPackages = formatResponsePackages(f.verification?.probe, 800);
+      if (verificationPackages) lines.push(`- 验证返回包:\n\`\`\`\n${verificationPackages.slice(0, 2400)}\n\`\`\``);
       if (f.recommendation) lines.push(`- 建议: ${f.recommendation}`);
       lines.push('');
     }
     lines.push('## API 测试');
     for (const t of r.apiTests) {
       lines.push(`- ${t.url}: ${(t.checks || []).map((c) => `${c.method} auth=${c.auth?.status || c.auth?.error || '-'} anon=${c.anon?.status || c.anon?.error || '-'}`).join('; ')}`);
-      const preview = firstPreview(t);
-      if (preview) lines.push(`  - 预览: ${preview.replace(/\s+/g, ' ').slice(0, 300)}`);
+      const packages = formatResponsePackages(t, 500);
+      if (packages) lines.push(`  - 返回包:\n\`\`\`\n${packages.slice(0, 2200)}\n\`\`\``);
     }
     const blob = new Blob([lines.join('\n')], { type: 'text/markdown' });
     const url = URL.createObjectURL(blob);

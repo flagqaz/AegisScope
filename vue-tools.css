@@ -83,7 +83,45 @@ h1 { margin: 0; font-size: 19px; line-height: 1.1; letter-spacing: 0; }
   overflow: hidden;
   text-overflow: ellipsis;
 }
-.actions { display: flex; flex-wrap: wrap; gap: 8px; justify-content: flex-end; }
+.actions { display: flex; flex-wrap: wrap; gap: 8px; justify-content: flex-end; align-items: center; }
+.repo-link {
+  width: 34px;
+  height: 34px;
+  display: grid;
+  place-items: center;
+  border: 1px solid rgba(102,242,201,0.36);
+  border-radius: 999px;
+  color: #e8fbff;
+  background: rgba(5,11,19,0.66);
+  text-decoration: none;
+}
+.repo-link svg {
+  width: 18px;
+  height: 18px;
+  fill: currentColor;
+}
+.repo-link:hover {
+  color: #03101a;
+  border-color: var(--mint);
+  background: var(--mint);
+}
+.top-author-link {
+  min-height: 34px;
+  display: inline-flex;
+  align-items: center;
+  padding: 6px 10px;
+  border: 1px solid rgba(102,242,201,0.28);
+  border-radius: 999px;
+  color: #a8ffe8;
+  background: rgba(102,242,201,0.08);
+  text-decoration: none;
+  font-size: 12px;
+}
+.top-author-link:hover {
+  color: #03101a;
+  border-color: var(--mint);
+  background: var(--mint);
+}
 button {
   min-height: 34px;
   padding: 7px 11px;
@@ -220,6 +258,32 @@ dialog::backdrop { background: rgba(2,8,15,0.68); }
 dialog header { padding: 13px 14px; border-bottom: 1px solid var(--line); }
 dialog p { margin: 0; padding: 14px; color: var(--muted); line-height: 1.6; }
 .dialog-actions { display: flex; justify-content: flex-end; gap: 8px; padding: 0 14px 14px; }
+.page-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin: 0 22px 18px;
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: rgba(5,11,19,0.58);
+  color: var(--muted);
+  font-size: 12px;
+}
+.author-link {
+  padding: 4px 9px;
+  border: 1px solid rgba(102,242,201,0.28);
+  border-radius: 999px;
+  color: #a8ffe8;
+  background: rgba(102,242,201,0.08);
+  text-decoration: none;
+}
+.author-link:hover {
+  color: #03101a;
+  border-color: var(--mint);
+  background: var(--mint);
+}
 
 @media (max-width: 900px) {
   .page-header { align-items: flex-start; flex-direction: column; }
