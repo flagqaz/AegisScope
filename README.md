@@ -3,7 +3,7 @@
 <div align="center">
   <img src="icons/icon128.png" alt="玄镜 AegisScope" width="88" height="88">
 
-  <h2>玄镜 AegisScope V1.0.0</h2>
+  <h2>玄镜 AegisScope V1.0.1</h2>
 
   <p>
     前端代码资产采集、泄露扫描、漏洞审计与 Vue Router 运行分析工具。
@@ -25,6 +25,8 @@
 首次打开玄镜 AegisScope 插件首页时，系统会展示使用许可与免责声明。使用者必须勾选同意条款后，插件才会启用代码采集、泄露扫描、漏洞审计、API 测试、Vue Router 分析、验证和报告导出等功能。
 
 请在安装并使用本工具前，审慎阅读并充分理解以下条款：
+
+本工具禁止进行未授权用途，禁止二次开发后进行未授权用途。
 
 本插件具备代码资产采集、泄露扫描、漏洞审计、API 探测、路由运行时分析等能力。使用过程中可能对目标网站造成**访问日志增加、接口请求增加、触发风控告警、触发验证码或登录失效、造成业务状态变化、业务状态不可用**等风险。请仅在测试环境或明确授权范围内使用，您在使用本插件的过程中存在任何非法行为，您需自行承担相应后果，我们将不承担任何法律及连带责任。
 
@@ -280,6 +282,11 @@ Vue 工具模块用于分析当前页面中的 Vue / Vue Router 运行时实例�
 
 ## 版本记录
 
+### V1.0.1
+
+- 漏洞审计的漏洞发现验证结果增加对应请求方法的返回包回显。
+- API 批量测试完成后，会回显所有勾选请求方法的返回包。
+
 ### V1.0.0
 
 - 全新品牌：玄镜 AegisScope。
@@ -290,24 +297,6 @@ Vue 工具模块用于分析当前页面中的 Vue / Vue Router 运行时实例�
 - 支持 Vue Router 运行时分析、路由跳转与守卫绕过验证。
 - 支持 JSON / Markdown 报告导出。
 
-## 目录结构
 
-```text
-玄镜 AegisScope
-├── manifest.json
-├── popup.html / popup.css / popup.js
-├── scan.html / scan.css / scan.js
-├── vuln-scan.html / vuln-scan.css / vuln-scan.js
-├── vue-tools.html / vue-tools.css / vue-tools.js
-├── analyzer.js
-├── rules.js
-├── background.js
-├── content.js
-├── icons/
-└── README.md
-```
-
----
-
-玄镜 AegisScope V1.0.0  
+玄镜 AegisScope V1.0.1  
 为授权前端安全测试、代码资产分析和漏洞审计而生。
