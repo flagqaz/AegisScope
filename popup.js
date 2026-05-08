@@ -7,6 +7,8 @@ const els = {
   filterType: document.getElementById('filterType'),
   refresh: document.getElementById('refresh'),
   downloadAll: document.getElementById('downloadAll'),
+  siteSniff: document.getElementById('siteSniff'),
+  fingerprintScan: document.getElementById('fingerprintScan'),
   securityScan: document.getElementById('securityScan'),
   vulnScan: document.getElementById('vulnScan'),
   vueTools: document.getElementById('vueTools'),
@@ -25,6 +27,13 @@ const els = {
   saveJsPackage: document.getElementById('saveJsPackage'),
   saveHtmlSingle: document.getElementById('saveHtmlSingle'),
   saveProgress: document.getElementById('saveProgress'),
+  sniffPanel: document.getElementById('sniffPanel'),
+  sniffStatus: document.getElementById('sniffStatus'),
+  sniffSummary: document.getElementById('sniffSummary'),
+  sniffResults: document.getElementById('sniffResults'),
+  sniffEvidence: document.getElementById('sniffEvidence'),
+  sniffExport: document.getElementById('sniffExport'),
+  sniffClose: document.getElementById('sniffClose'),
   repoLink: document.getElementById('repoLink'),
   topAuthorLink: document.getElementById('topAuthorLink'),
   authorLink: document.getElementById('authorLink')
@@ -42,8 +51,11 @@ const AEGISSCOPE_STATIC_FINGERPRINT = Object.freeze({
 let currentTabId = null;
 let currentTabHost = '';
 let scripts = [];
+let sniffState = { signals: null, findings: [] };
 const downloadFetchCache = new Map();
 const TERMS_ACCEPTED_KEY = 'aegisscope_terms_accepted_v1';
+const SNIFF_REGEX_CACHE = new Map();
+const SNIFF_MAX_EVIDENCE_PER_RULE = 24;
 
 bootstrap().catch((err) => setStatus(`初始化失败: ${err.message}`));
 
@@ -103,6 +115,17 @@ async function init() {
     await loadScripts();
   });
   els.downloadAll.addEventListener('click', openSaveDialog);
+  els.siteSniff.addEventListener('click', openSiteSniff);
+  els.fingerprintScan.addEventListener('click', openFingerprintScan);
+  els.sniffClose.addEventListener('click', () => {
+    els.sniffPanel.hidden = true;
+    setAssetListVisible(true);
+  });
+  els.sniffExport.addEventListener('click', exportSniffJson);
+  els.sniffResults.addEventListener('click', (event) => {
+    const button = event.target.closest('[data-action="vue-tools"]');
+    if (button) openVueTools();
+  });
   els.saveClose.addEventListener('click', () => els.saveDialog.close());
   els.saveJsPackage.addEventListener('click', () => {
     downloadAll();
@@ -120,6 +143,8 @@ async function init() {
   els.search.addEventListener('input', render);
   els.filterType.addEventListener('change', render);
   els.viewerClose.addEventListener('click', () => els.viewer.close());
+
+  openSiteSniff();
 }
 
 async function openProjectHome() {
@@ -170,6 +195,14 @@ function render() {
   for (const s of filtered) {
     els.list.appendChild(renderRow(s));
   }
+}
+
+function setAssetListVisible(visible) {
+  els.list.hidden = !visible;
+  els.empty.hidden = !visible;
+  els.list.style.display = visible ? '' : 'none';
+  els.empty.style.display = visible ? '' : 'none';
+  document.body.classList.toggle('sniff-mode', !visible);
 }
 
 function renderRow(s) {
@@ -864,9 +897,754 @@ function crc32(data) {
   return (crc ^ 0xffffffff) >>> 0;
 }
 
+async function collectSniffPageSignals() {
+  const [result] = await chrome.scripting.executeScript({
+    target: { tabId: currentTabId },
+    func: collectSniffPageSignalsInPage
+  });
+  return result?.result || {};
+}
+
+async function collectSniffRuntimeSignals() {
+  try {
+    const [result] = await chrome.scripting.executeScript({
+      target: { tabId: currentTabId },
+      world: 'MAIN',
+      func: collectSniffRuntimeSignalsInPage
+    });
+    return result?.result || {};
+  } catch {
+    const [result] = await chrome.scripting.executeScript({
+      target: { tabId: currentTabId },
+      func: collectSniffRuntimeSignalsInPage
+    });
+    return result?.result || {};
+  }
+}
+
+function normalizeSniffSignals(page = {}, runtime = {}, background = {}) {
+  const main = background?.main || {};
+  const headers = mergeSniffHeaders(main.headers || {});
+  const resources = dedupeSniffResources([
+    ...(background?.resources || []),
+    ...(background?.scripts || []),
+    ...(page.resources || [])
+  ]);
+  const scriptSrc = sniffUnique([
+    ...(page.scriptSrc || []),
+    ...resources
+      .filter((item) => item.type === 'script' || /\.m?js(?:[?#]|$)/i.test(item.url || ''))
+      .map((item) => item.url)
+  ]);
+  const resourceUrls = sniffUnique(resources.map((item) => item.url).filter(Boolean));
+  const resourceHosts = sniffUnique(resourceUrls.map(sniffHost).filter(Boolean));
+  const xhrHosts = sniffUnique(resources
+    .filter((item) => /xmlhttprequest|fetch|beacon|ping/i.test(item.type || ''))
+    .map((item) => sniffHost(item.url))
+    .filter(Boolean));
+  return {
+    url: page.url || main.url || '',
+    title: page.title || '',
+    html: page.html || '',
+    text: page.text || '',
+    css: page.css || '',
+    scripts: page.scripts || [],
+    meta: page.meta || {},
+    cookies: page.cookies || {},
+    classNames: page.classNames || [],
+    ids: page.ids || [],
+    vueMarkers: page.vueMarkers || [],
+    linkHrefs: page.linkHrefs || [],
+    styleHrefs: page.styleHrefs || [],
+    htmlAttrs: page.htmlAttrs || {},
+    bodyAttrs: page.bodyAttrs || {},
+    headers,
+    resources,
+    scriptSrc,
+    resourceUrls,
+    resourceHosts,
+    xhrHosts,
+    globals: runtime.globals || {},
+    vueRuntime: runtime.vueRuntime || [],
+    main
+  };
+}
+
+function mergeSniffHeaders(...items) {
+  const out = {};
+  for (const item of items) {
+    for (const [key, value] of Object.entries(item || {})) {
+      const name = key.toLowerCase();
+      out[name] = sniffUnique([...(out[name] || []), ...sniffArray(value).map(String)]);
+    }
+  }
+  return out;
+}
+
+function dedupeSniffResources(resources) {
+  const seen = new Map();
+  for (const item of resources || []) {
+    if (!item?.url) continue;
+    const type = item.type || item.kind || (item.inline ? 'inline-script' : 'resource');
+    seen.set(`${type}:${item.url}`, {
+      url: item.url,
+      type,
+      statusCode: item.statusCode || 0,
+      fromCache: !!item.fromCache
+    });
+  }
+  return Array.from(seen.values());
+}
+
+function analyzeSniffSignals(signals) {
+  const rules = window.AEGISSCOPE_SNIFF_RULES || [];
+  const detected = [];
+  for (const rule of rules) {
+    const evidences = [];
+    let version = '';
+    for (const matcher of rule.matchers || []) {
+      if (!sniffSourceAvailable(signals, matcher.source)) continue;
+      for (const item of matchSniffSignal(signals, matcher)) {
+        evidences.push(item);
+        version = bestSniffVersion(version, item.version);
+        if (evidences.length >= SNIFF_MAX_EVIDENCE_PER_RULE) break;
+      }
+      if (evidences.length >= SNIFF_MAX_EVIDENCE_PER_RULE) break;
+    }
+    if (!evidences.length) continue;
+    const uniqueEvidence = uniqueSniffEvidence(evidences);
+    version = bestSniffVersion(version, inferSniffVersion(rule, uniqueEvidence));
+    const score = scoreSniffFinding(rule, uniqueEvidence);
+    const minScore = rule.minScore || 60;
+    const minEvidence = rule.minEvidence || 1;
+    if (score < minScore || uniqueEvidence.length < minEvidence) continue;
+    detected.push({
+      id: rule.id,
+      name: rule.name,
+      category: rule.category || '其他',
+      version,
+      score,
+      evidences: uniqueEvidence.slice(0, 10),
+      infers: rule.infers || []
+    });
+  }
+  return detected;
+}
+
+function scoreSniffFinding(rule, evidences) {
+  const uniqueSources = new Set(evidences.map((item) => item.sourceKey || item.source || ''));
+  const sorted = [...evidences]
+    .map((item) => Math.max(1, Math.min(100, item.score || 60)))
+    .sort((a, b) => b - a);
+  if (!sorted.length) return 0;
+  let score = sorted[0];
+  for (const extra of sorted.slice(1, 6)) {
+    score += Math.max(2, Math.round(extra * 0.28));
+  }
+  if (uniqueSources.size > 1) score += Math.min(12, (uniqueSources.size - 1) * 4);
+  if (rule.strongSourceBonus && evidences.some((item) => rule.strongSourceBonus.includes(item.sourceType))) {
+    score += 6;
+  }
+  return Math.min(100, score);
+}
+
+function sniffSourceAvailable(signals, source) {
+  if (!source) return Boolean(signals.html);
+  if (source === 'headers') return Object.keys(signals.headers || {}).length > 0;
+  if (source === 'cookies') return Object.keys(signals.cookies || {}).length > 0;
+  if (source === 'meta') return Object.keys(signals.meta || {}).length > 0;
+  if (source === 'globals') return Object.keys(signals.globals || {}).length > 0;
+  if (source === 'scriptSrc') return Boolean(signals.scriptSrc?.length);
+  if (source === 'scripts') return Boolean(signals.scripts?.length);
+  if (source === 'css') return Boolean(signals.css);
+  if (source === 'className') return Boolean(signals.classNames?.length);
+  if (source === 'id') return Boolean(signals.ids?.length);
+  if (source === 'vueMarker') return Boolean(signals.vueMarkers?.length);
+  if (source === 'vueRuntime') return Boolean(signals.vueRuntime?.length);
+  if (source === 'linkHref') return Boolean(signals.linkHrefs?.length);
+  if (source === 'styleHref') return Boolean(signals.styleHrefs?.length);
+  if (source === 'resourceUrl') return Boolean(signals.resourceUrls?.length);
+  if (source === 'resourceHost') return Boolean(signals.resourceHosts?.length);
+  if (source === 'xhrHost') return Boolean(signals.xhrHosts?.length);
+  if (source === 'htmlAttr') return Boolean(Object.keys(signals.htmlAttrs || {}).length);
+  if (source === 'bodyAttr') return Boolean(Object.keys(signals.bodyAttrs || {}).length);
+  if (source === 'title') return Boolean(signals.title);
+  if (source === 'url') return Boolean(signals.url);
+  if (source === 'text') return Boolean(signals.text);
+  return Boolean(signals.html);
+}
+
+function inferSniffVersion(rule, evidences) {
+  const aliases = sniffVersionAliases(rule);
+  for (const evidence of evidences || []) {
+    const text = `${evidence.value || ''} ${evidence.context || ''}`;
+    for (const pattern of rule.versionPatterns || []) {
+      const version = sniffVersionMatch(text, pattern);
+      if (version) return version;
+    }
+    for (const alias of aliases) {
+      for (const pattern of sniffVersionPatternsForAlias(alias)) {
+        const version = sniffVersionMatch(text, pattern);
+        if (version) return version;
+      }
+    }
+    const queryVersion = sniffVersionMatch(text, '[?&](?:ver|v|version)=([0-9]+(?:\\.[0-9A-Za-z_-]+){1,4})');
+    if (queryVersion) return queryVersion;
+  }
+  return '';
+}
+
+function sniffVersionAliases(rule) {
+  const raw = sniffUnique([rule.id, rule.name, String(rule.name || '').replace(/\.js$/i, ''), String(rule.name || '').replace(/[^A-Za-z0-9]+/g, '')]);
+  return sniffUnique(raw.flatMap((item) => {
+    const text = String(item || '').toLowerCase();
+    return [
+      text.replace(/[^a-z0-9._-]+/g, ''),
+      text.replace(/[^a-z0-9]+/g, '')
+    ];
+  })).filter((item) => item.length >= 2);
+}
+
+function sniffVersionPatternsForAlias(alias) {
+  const safe = alias.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  return [
+    `${safe}@([0-9]+(?:\\.[0-9A-Za-z_-]+){1,4})`,
+    `@${safe}(?:/|%2F)[^\\s?#'"]+@([0-9]+(?:\\.[0-9A-Za-z_-]+){1,4})`,
+    `${safe}(?:[._-]|%40)([0-9]+(?:\\.[0-9A-Za-z_-]+){1,4})(?:[._-]|/|%2F|$)`,
+    `${safe}(?:/|%2F)([0-9]+(?:\\.[0-9A-Za-z_-]+){1,4})(?:/|%2F|$)`,
+    `${safe}\\s*(?:/|:|v(?:ersion)?\\s*)\\s*([0-9]+(?:\\.[0-9A-Za-z_-]+){1,4})`
+  ];
+}
+
+function sniffVersionMatch(text, pattern) {
+  try {
+    const match = sniffRegex(pattern).exec(String(text || ''));
+    return sniffVersion(Array.from(match || []).slice(1).find(Boolean) || '');
+  } catch {
+    return '';
+  }
+}
+
+function bestSniffVersion(current, candidate) {
+  const left = sniffVersion(current);
+  const right = sniffVersion(candidate);
+  if (!right) return left;
+  if (!left) return right;
+  return sniffVersionWeight(right) > sniffVersionWeight(left) ? right : left;
+}
+
+function sniffVersionWeight(value) {
+  const text = sniffVersion(value);
+  if (!text) return 0;
+  let weight = Math.min(40, text.length);
+  if (/\d+\.\d+/.test(text)) weight += 20;
+  if (/[A-Za-z]/.test(text) && /\d/.test(text)) weight += 4;
+  if (/^\d{8,}$/.test(text)) weight -= 30;
+  return weight;
+}
+
+function resolveSniffFindings(items) {
+  const byName = new Map();
+  for (const item of items) mergeSniffFinding(byName, item);
+  for (const item of Array.from(byName.values())) {
+    for (const implied of item.infers || []) {
+      if (!byName.has(implied)) {
+        mergeSniffFinding(byName, {
+          id: sniffSlug(implied),
+          name: implied,
+          category: sniffImpliedCategory(implied),
+          score: Math.min(80, item.score),
+          version: '',
+          evidences: [{
+            source: '关联推断',
+            key: item.name,
+            value: `${item.name} => ${implied}`,
+            context: `${item.name} => ${implied}`,
+            score: Math.min(80, item.score)
+          }],
+          infers: []
+        });
+      }
+    }
+  }
+  return Array.from(byName.values()).sort((a, b) =>
+    sniffCategoryRank(a.category) - sniffCategoryRank(b.category) ||
+    b.score - a.score ||
+    a.name.localeCompare(b.name)
+  );
+}
+
+function mergeSniffFinding(byName, item) {
+  const existing = byName.get(item.name);
+  if (!existing) {
+    byName.set(item.name, { ...item, evidences: [...(item.evidences || [])] });
+    return;
+  }
+  existing.score = Math.max(existing.score, item.score);
+  existing.version = bestSniffVersion(existing.version, item.version);
+  existing.evidences = uniqueSniffEvidence([...(existing.evidences || []), ...(item.evidences || [])]).slice(0, 8);
+}
+
+function matchSniffSignal(signals, matcher) {
+  const values = valuesForSniffSource(signals, matcher);
+  const out = [];
+  for (const item of values) {
+    const value = String(item.value ?? '');
+    if (!value) continue;
+    let matched = false;
+    let matchText = '';
+    let version = '';
+    if (matcher.equals != null) {
+      matched = value === String(matcher.equals);
+      matchText = value;
+    } else if (matcher.all) {
+      matched = sniffArray(matcher.all).every((part) => value.toLowerCase().includes(String(part).toLowerCase()));
+      matchText = sniffArray(matcher.all).join(' + ');
+    } else if (matcher.contains) {
+      matched = value.toLowerCase().includes(String(matcher.contains).toLowerCase());
+      matchText = matcher.contains;
+    } else if (matcher.regex) {
+      const match = sniffRegex(matcher.regex).exec(value);
+      matched = !!match;
+      matchText = match?.[0] || '';
+      if (matched) {
+        if (Array.isArray(matcher.version)) {
+          version = matcher.version.map((index) => match?.[index]).find(Boolean) || '';
+        } else if (matcher.version && match?.[matcher.version]) {
+          version = match[matcher.version];
+        }
+        if (!version && matcher.versionRegex) {
+          const versionMatch = sniffRegex(matcher.versionRegex).exec(value);
+          version = Array.from(versionMatch || []).slice(1).find(Boolean) || '';
+        }
+      }
+    }
+    if (matched) {
+      out.push({
+        source: item.source,
+        sourceType: item.sourceType || matcher.source || '',
+        sourceKey: `${item.source || ''}:${item.key || matcher.key || matcher.source || ''}`,
+        key: item.key || matcher.key || '',
+        value: sniffCompact(matchText || value),
+        context: sniffCompact(value),
+        score: matcher.score || 60,
+        version: sniffVersion(version)
+      });
+    }
+  }
+  return out;
+}
+
+function valuesForSniffSource(signals, matcher) {
+  if (matcher.source === 'headers') {
+    if (!matcher.key) {
+      return Object.entries(signals.headers || {})
+        .flatMap(([key, values]) => sniffArray(values).map((value) => ({ source: 'Header', key, value })));
+    }
+    return sniffArray(signals.headers?.[String(matcher.key || '').toLowerCase()])
+      .map((value) => ({ source: '响应头', key: matcher.key, value }));
+  }
+  if (matcher.source === 'cookies') {
+    const key = String(matcher.key || '');
+    if (key.endsWith('_')) {
+      return Object.entries(signals.cookies || {})
+        .filter(([name]) => name.toLowerCase().startsWith(key.toLowerCase()))
+        .map(([name, value]) => ({ source: 'Cookie', key: name, value }));
+    }
+    const value = signals.cookies?.[key];
+    return typeof value === 'undefined' ? [] : [{ source: 'Cookie', key, value }];
+  }
+  if (matcher.source === 'meta') {
+    return sniffArray(signals.meta?.[String(matcher.key || '').toLowerCase()])
+      .map((value) => ({ source: 'Meta', key: matcher.key, value }));
+  }
+  if (matcher.source === 'globals') {
+    const value = signals.globals?.[matcher.key];
+    return typeof value === 'undefined' ? [] : [{ source: '运行时', key: matcher.key, value }];
+  }
+  if (matcher.source === 'scriptSrc') {
+    return (signals.scriptSrc || []).map((value) => ({ source: '脚本', value }));
+  }
+  if (matcher.source === 'scripts') {
+    return (signals.scripts || []).map((value, index) => ({ source: '内联脚本', key: `script#${index + 1}`, value }));
+  }
+  if (matcher.source === 'css') {
+    return [{ source: 'CSS', value: signals.css || '' }];
+  }
+  if (matcher.source === 'className') {
+    return (signals.classNames || []).map((value) => ({ source: 'Class', value }));
+  }
+  if (matcher.source === 'id') {
+    return (signals.ids || []).map((value) => ({ source: 'ID', value }));
+  }
+  if (matcher.source === 'vueMarker') {
+    return (signals.vueMarkers || []).map((value) => ({ source: 'Vue Marker', value }));
+  }
+  if (matcher.source === 'vueRuntime') {
+    return (signals.vueRuntime || []).map((value) => ({ source: 'Vue Runtime', value }));
+  }
+  if (matcher.source === 'linkHref') {
+    return (signals.linkHrefs || []).map((value) => ({ source: 'Link', value }));
+  }
+  if (matcher.source === 'styleHref') {
+    return (signals.styleHrefs || []).map((value) => ({ source: '样式表', value }));
+  }
+  if (matcher.source === 'resourceUrl') {
+    return (signals.resourceUrls || []).map((value) => ({ source: '资源', value }));
+  }
+  if (matcher.source === 'resourceHost') {
+    return (signals.resourceHosts || []).map((value) => ({ source: '资源域名', value }));
+  }
+  if (matcher.source === 'xhrHost') {
+    return (signals.xhrHosts || []).map((value) => ({ source: '接口域名', value }));
+  }
+  if (matcher.source === 'htmlAttr') {
+    const value = signals.htmlAttrs?.[String(matcher.key || '').toLowerCase()];
+    return typeof value === 'undefined' ? [] : [{ source: 'HTML属性', key: matcher.key, value: value || String(matcher.key || '') }];
+  }
+  if (matcher.source === 'bodyAttr') {
+    const value = signals.bodyAttrs?.[String(matcher.key || '').toLowerCase()];
+    return typeof value === 'undefined' ? [] : [{ source: 'Body属性', key: matcher.key, value: value || String(matcher.key || '') }];
+  }
+  if (matcher.source === 'title') return [{ source: '标题', value: signals.title || '' }];
+  if (matcher.source === 'url') return [{ source: 'URL', value: signals.url || '' }];
+  if (matcher.source === 'text') return [{ source: '正文', value: signals.text || '' }];
+  return [{ source: 'HTML', value: signals.html || '' }];
+}
+
+function renderSniffResults() {
+  const { signals, findings } = sniffState;
+  els.sniffSummary.innerHTML = [
+    ['技术', findings.length],
+    ['脚本', signals.scriptSrc?.length || 0],
+    ['响应头', Object.keys(signals.headers || {}).length]
+  ].map(([label, value]) => `<div class="sniff-stat"><span>${label}</span><strong>${value}</strong></div>`).join('');
+
+  if (!findings.length) {
+    els.sniffResults.innerHTML = '<div class="empty visible">暂未识别到明确技术。</div>';
+    return;
+  }
+
+  els.sniffResults.innerHTML = sniffGroups(findings).map(([category, items]) => `
+    <section class="sniff-category">
+      <h3>${escapeHtml(category)}</h3>
+      <div class="sniff-techs">
+        ${items.map((item) => renderSniffFinding(item)).join('')}
+      </div>
+    </section>
+  `).join('');
+  els.sniffEvidence.innerHTML = findings.map((item) => `
+    <div class="sniff-evidence">
+      <strong>${escapeHtml(item.name)}${item.version ? ` ${escapeHtml(item.version)}` : ''}</strong>
+      ${item.evidences.map((ev) => `<div>${escapeHtml(ev.source)}${ev.key ? ':' + escapeHtml(ev.key) : ''} = ${escapeHtml(ev.value)}</div>`).join('')}
+    </div>
+  `).join('');
+}
+
+function renderSniffFinding(item) {
+  const main = `
+    <button class="sniff-tech" title="${escapeAttr(sniffEvidenceTitle(item))}">
+      <b>${escapeHtml(item.name)}</b>
+      ${item.version ? `<em>${escapeHtml(item.version)}</em>` : ''}
+      <span>${sniffScoreLabel(item.score)}</span>
+    </button>
+  `;
+  if (item.name !== 'Vue.js') return main;
+  return `
+    <div class="sniff-tech-row">
+      ${main}
+      <button class="sniff-vue-jump" data-action="vue-tools" title="跳转Vue 工具">跳转Vue 工具</button>
+    </div>
+  `;
+}
+
+function sniffScoreLabel(score) {
+  if (score >= 90) return '强';
+  if (score >= 75) return '稳';
+  return '弱';
+}
+
+async function exportSniffJson() {
+  if (!sniffState.findings.length) {
+    setStatus('暂无网站嗅探结果可导出');
+    return;
+  }
+  const payload = {
+    generatedAt: new Date().toISOString(),
+    url: sniffState.signals?.url || '',
+    title: sniffState.signals?.title || '',
+    findings: sniffState.findings
+  };
+  const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json;charset=utf-8' });
+  const url = URL.createObjectURL(blob);
+  await chrome.downloads.download({ url, filename: `js-extractor/site-sniff-${Date.now()}.json`, saveAs: true });
+}
+
+function sniffGroups(items) {
+  const groups = new Map();
+  for (const item of items) {
+    if (!groups.has(item.category)) groups.set(item.category, []);
+    groups.get(item.category).push(item);
+  }
+  return Array.from(groups.entries()).sort((a, b) => sniffCategoryRank(a[0]) - sniffCategoryRank(b[0]));
+}
+
+function sniffCategoryRank(category) {
+  const order = ['内容管理系统（CMS）', '电子商务', '论坛', '网站构建器', '托管平台', 'Web App', '数据库', 'JavaScript 框架', 'JavaScript 库', '用户界面（UI）框架', 'CSS 框架', '字体脚本', '编程语言', 'Web 服务器', 'CDN', '支付', '分析工具', '标签管理器', '监控', '构建工具', '文档', 'API', '安全'];
+  const index = order.indexOf(category);
+  return index === -1 ? order.length : index;
+}
+
+function sniffImpliedCategory(name) {
+  if (name === 'PHP' || name === 'Java' || name === 'ASP.NET') return '编程语言';
+  if (name === 'React' || name === 'Vue.js') return 'JavaScript 框架';
+  return '其他';
+}
+
+function uniqueSniffEvidence(items) {
+  const seen = new Set();
+  return items.filter((item) => {
+    const key = `${item.source}|${item.key}|${item.value}`;
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+}
+
+function sniffEvidenceTitle(item) {
+  return item.evidences.map((ev) => `${ev.source}${ev.key ? ':' + ev.key : ''} = ${ev.value}`).join('\n');
+}
+
+function escapeHtml(value) {
+  return String(value ?? '').replace(/[&<>"']/g, (ch) => ({
+    '&': '&amp;',
+    '<': '&lt;',
+    '>': '&gt;',
+    '"': '&quot;',
+    "'": '&#39;'
+  })[ch]);
+}
+
+function escapeAttr(value) {
+  return escapeHtml(value).replace(/`/g, '&#96;');
+}
+
+function collectSniffPageSignalsInPage() {
+  const meta = {};
+  for (const node of document.querySelectorAll('meta')) {
+    const key = (node.getAttribute('name') || node.getAttribute('property') || node.getAttribute('http-equiv') || '').toLowerCase();
+    if (!key) continue;
+    meta[key] = meta[key] || [];
+    meta[key].push(node.getAttribute('content') || '');
+  }
+  const cookies = {};
+  for (const part of (document.cookie || '').split(';')) {
+    const item = part.trim();
+    if (!item) continue;
+    const index = item.indexOf('=');
+    const name = index >= 0 ? item.slice(0, index) : item;
+    cookies[name] = index >= 0 ? item.slice(index + 1) : '';
+  }
+  const abs = (value) => {
+    try { return new URL(value, location.href).href; } catch { return ''; }
+  };
+  const attrs = (node) => Object.fromEntries(Array.from(node?.attributes || []).map((attr) => [attr.name.toLowerCase(), attr.value || '']));
+  const classNames = [];
+  const ids = [];
+  for (const node of document.querySelectorAll('[class], [id]')) {
+    if (node.id) ids.push(node.id);
+    if (node.classList?.length) classNames.push(...Array.from(node.classList));
+    if (classNames.length > 1800 && ids.length > 500) break;
+  }
+  const vueMarkers = [];
+  const pushVueMarker = (value) => {
+    if (value && !vueMarkers.includes(value)) vueMarkers.push(value);
+  };
+  for (const [selector, marker] of [
+    ['[data-v-app]', 'data-v-app'],
+    ['[data-server-rendered]', 'data-server-rendered'],
+    ['router-view, router-link', 'router-element'],
+    ['[v-cloak], [v-pre], [v-once]', 'vue-directive-attr']
+  ]) {
+    try { if (document.querySelector(selector)) pushVueMarker(marker); } catch {}
+  }
+  let vueNodeChecks = 0;
+  for (const node of document.querySelectorAll('*')) {
+    for (const attr of Array.from(node.attributes || [])) {
+      if (/^data-v-[a-f0-9]{6,}$/i.test(attr.name)) {
+        pushVueMarker(attr.name);
+        break;
+      }
+    }
+    if (++vueNodeChecks >= 5000 || vueMarkers.length >= 20) break;
+  }
+  const linkHrefs = Array.from(document.querySelectorAll('link[href], a[href]'))
+    .map((node) => node.getAttribute('href'))
+    .filter(Boolean)
+    .map(abs)
+    .filter(Boolean)
+    .slice(0, 900);
+  const styleHrefs = Array.from(document.querySelectorAll('link[rel~="stylesheet"][href]'))
+    .map((node) => node.getAttribute('href'))
+    .filter(Boolean)
+    .map(abs)
+    .filter(Boolean)
+    .slice(0, 300);
+  const scripts = [];
+  let scriptChars = 0;
+  for (const node of Array.from(document.scripts)) {
+    const text = node.textContent || '';
+    if (!text.trim()) continue;
+    const remaining = 220000 - scriptChars;
+    if (remaining <= 0 || scripts.length >= 60) break;
+    scripts.push(text.slice(0, remaining));
+    scriptChars += Math.min(text.length, remaining);
+  }
+  const css = [];
+  try {
+    for (const sheet of Array.from(document.styleSheets)) {
+      for (const rule of Array.from(sheet.cssRules || [])) {
+        css.push(rule.cssText);
+        if (css.join('\n').length > 180000) break;
+      }
+      if (css.join('\n').length > 180000) break;
+    }
+  } catch {}
+  return {
+    url: location.href,
+    title: document.title,
+    html: document.documentElement.outerHTML.slice(0, 650000),
+    text: (document.body?.innerText || '').slice(0, 50000),
+    css: css.join('\n').slice(0, 180000),
+    scripts,
+    meta,
+    cookies,
+    classNames: Array.from(new Set(classNames)).slice(0, 1800),
+    ids: Array.from(new Set(ids)).slice(0, 500),
+    vueMarkers: vueMarkers.slice(0, 20),
+    linkHrefs,
+    styleHrefs,
+    htmlAttrs: attrs(document.documentElement),
+    bodyAttrs: attrs(document.body),
+    scriptSrc: Array.from(document.scripts).map((node) => node.src || node.getAttribute('src')).filter(Boolean).map(abs).filter(Boolean),
+    resources: performance.getEntriesByType('resource').map((entry) => ({ url: entry.name, type: entry.initiatorType || 'resource' })).slice(0, 700)
+  };
+}
+
+function collectSniffRuntimeSignalsInPage() {
+  const chains = ['Vue', 'Vue.version', 'VueRouter', 'Vuex', 'Pinia', '__VUE_OPTIONS_API__', '__VUE_PROD_DEVTOOLS__', 'React', 'React.version', 'ReactDOM', 'ReactDOM.version', 'angular', 'angular.version.full', 'jQuery', 'jQuery.fn.jquery', '$.fn.jquery', 'bootstrap.Tooltip.VERSION', '_', '_.VERSION', 'moment', 'moment.version', 'dayjs', 'dayjs.version', 'axios', 'axios.VERSION', 'Swiper', 'layui', 'layui.v', 'Vant', 'ElementPlus', 'ELEMENT', 'antd', 'ArcoVue', 'Highcharts', 'Highcharts.version', 'echarts', 'echarts.version', 'Chart', 'Chart.version', 'd3', 'd3.version', 'THREE', 'THREE.REVISION', 'Backbone', 'Backbone.VERSION', 'ko', 'ko.version', 'Ember', 'Ember.VERSION', 'MooTools', 'MooTools.version', 'Prototype', 'Prototype.Version', 'Zepto', 'require', 'require.version', 'define.amd', 'seajs', 'System', 'Alpine', 'htmx', 'NProgress', 'webpackJsonp', 'webpackChunk', '__webpack_require__', '__webpack_require__.p', '__VUE_DEVTOOLS_GLOBAL_HOOK__', '__NUXT__', '__NEXT_DATA__', '___gatsby', '__remixContext', 'Shopify', 'Shopify.theme', 'Magento', 'Mage', 'Webflow', 'Wix', 'Squarespace', 'Stripe', 'paypal', 'grecaptcha', 'hcaptcha', 'turnstile', 'Sentry', 'Raven', 'dataLayer', 'gtag', '_hmt', 'sensors', 'gio', 'clarity', 'hj', 'posthog', 'AMap', 'BMap', 'qq.maps', 'wx', 'WeixinJSBridge'];
+  chains.push('AFRAME', 'AFRAME.version', 'gsap', 'gsap.version', 'TweenLite.version', 'TweenMax.version', 'Lenis', 'lenisVersion', 'FullCalendar.version', 'MonacoEnvironment', 'monaco.editor', 'Prism', 'hljs', 'hljs.listLanguages', 'MathJax', 'MathJax.version', 'katex', 'katex.version', 'mermaid', 'Splide', 'Choices', 'jQuery.fn.select2', '$.fn.select2', 'tinyMCE', 'tinymce', 'tinyMCE.majorVersion', 'CKEDITOR', 'CKEDITOR.version', 'CKEDITOR_VERSION', 'Quill', 'videojs', 'videojs.VERSION', 'lottie.version', 'analytics.VERSION', 'analytics.SNIPPET_VERSION', 'mixpanel', 'plausible', 'PAYPAL', '__paypal_global__');
+  const globals = {};
+  for (const chain of chains) {
+    const value = chain.split('.').reduce((obj, key) => {
+      if (obj && Object.prototype.hasOwnProperty.call(Object(obj), key)) return obj[key];
+      return undefined;
+    }, window);
+    if (typeof value === 'undefined') continue;
+    if (typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean') globals[chain] = String(value).slice(0, 160);
+    else if (typeof value === 'function') globals[chain] = 'function';
+    else globals[chain] = Array.isArray(value) ? `array(${value.length})` : 'object';
+  }
+  const vueRuntime = [];
+  const pushVueRuntime = (value) => {
+    if (value && !vueRuntime.includes(value)) vueRuntime.push(value);
+  };
+  try {
+    const hook = window.__VUE_DEVTOOLS_GLOBAL_HOOK__;
+    if (hook?.Vue?.version) pushVueRuntime(`version:${hook.Vue.version}`);
+    if (Array.isArray(hook?.apps) && hook.apps.length) pushVueRuntime(`devtools-apps:${hook.apps.length}`);
+  } catch {}
+  let vueDomChecks = 0;
+  try {
+    for (const node of document.querySelectorAll('*')) {
+      if (node.__vue_app__) pushVueRuntime('__vue_app__');
+      if (node.__vue__) pushVueRuntime('__vue__');
+      if (node.__vueParentComponent) pushVueRuntime('__vueParentComponent');
+      if (node.__vnode || node._vnode) pushVueRuntime('__vnode');
+      if (++vueDomChecks >= 5000 || vueRuntime.length >= 20) break;
+    }
+  } catch {}
+  return { globals, vueRuntime };
+}
+
+function sniffRegex(pattern) {
+  const key = String(pattern || '');
+  if (SNIFF_REGEX_CACHE.has(key)) return SNIFF_REGEX_CACHE.get(key);
+  let regex;
+  try { regex = new RegExp(key, 'i'); } catch { regex = /$a/; }
+  if (SNIFF_REGEX_CACHE.size > 600) SNIFF_REGEX_CACHE.clear();
+  SNIFF_REGEX_CACHE.set(key, regex);
+  return regex;
+}
+
+function sniffVersion(value) {
+  const text = String(value || '').trim();
+  if (!/^[A-Za-z0-9._-]{1,24}$/.test(text)) return '';
+  if (/^\d{10,}$/.test(text)) return '';
+  return text;
+}
+
+function sniffCompact(value) {
+  const text = String(value || '').replace(/\s+/g, ' ').trim();
+  return text.length > 180 ? `${text.slice(0, 177)}...` : text;
+}
+
+function sniffUnique(items) {
+  return Array.from(new Set((items || []).filter((item) => item !== undefined && item !== null && item !== '')));
+}
+
+function sniffArray(value) {
+  if (Array.isArray(value)) return value;
+  if (value === undefined || value === null) return [];
+  return [value];
+}
+
+function sniffSlug(value) {
+  return String(value || '').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') || 'item';
+}
+
+function sniffHost(value) {
+  try { return new URL(value).hostname.toLowerCase(); } catch { return ''; }
+}
+
 async function openSecurityScan() {
   const url = chrome.runtime.getURL(`scan.html?tabId=${currentTabId}`);
   await chrome.tabs.create({ url });
+}
+
+async function openFingerprintScan() {
+  const url = chrome.runtime.getURL(`fingerprint-scan.html?tabId=${currentTabId}`);
+  await chrome.tabs.create({ url });
+}
+
+async function openSiteSniff() {
+  els.sniffPanel.hidden = false;
+  setAssetListVisible(false);
+  els.sniffStatus.textContent = '正在快速识别当前页面...';
+  els.sniffSummary.innerHTML = '';
+  els.sniffResults.innerHTML = '<div class="empty visible">正在读取页面信号...</div>';
+  els.sniffEvidence.innerHTML = '';
+  setStatus('正在进行网站嗅探...');
+
+  try {
+    const [pageSignals, runtimeSignals, backgroundSignals] = await Promise.all([
+      collectSniffPageSignals(),
+      collectSniffRuntimeSignals(),
+      chrome.runtime.sendMessage({ type: 'GET_SNIFF_DATA', tabId: currentTabId }).catch(() => ({}))
+    ]);
+    const signals = normalizeSniffSignals(pageSignals, runtimeSignals, backgroundSignals);
+    const findings = resolveSniffFindings(analyzeSniffSignals(signals));
+    sniffState = { signals, findings };
+    renderSniffResults();
+    els.sniffStatus.textContent = findings.length
+      ? `识别完成：${findings.length} 项技术`
+      : '未识别到明确技术，可刷新目标页面后重试';
+    setStatus(`网站嗅探完成：${findings.length} 项技术`);
+  } catch (err) {
+    els.sniffStatus.textContent = `识别失败：${err.message}`;
+    els.sniffResults.innerHTML = '<div class="empty visible">网站嗅探失败。</div>';
+    setStatus(`网站嗅探失败：${err.message}`);
+  }
 }
 
 async function openVulnScan() {

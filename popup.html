@@ -20,7 +20,7 @@
           </svg>
         </button>
         <button id="topAuthorLink" class="top-author-link" title="GitHub: flagqaz/AegisScope">by.农夫三拳</button>
-        <span class="version">V1.0.1</span>
+        <span class="version">V1.1.2</span>
         <span id="count" class="badge">0</span>
       </div>
     </div>
@@ -36,7 +36,8 @@
     <div class="action-row">
       <button id="refresh" title="重新扫描">刷新</button>
       <button id="downloadAll" title="保存代码资源或完整页面">保存</button>
-      <button id="securityScan" class="primary" title="对代码资源运行泄露扫描">泄露扫描</button>
+      <button id="siteSniff" class="primary" title="网站技术栈、框架、CMS、库与响应头识别">网站嗅探</button>
+      <button id="securityScan" title="对代码资源运行泄露扫描">泄露扫描</button>
       <button id="vulnScan" title="源码审计与低风险接口漏扫">漏扫审计</button>
       <button id="vueTools" title="Vue Router runtime tools">Vue 工具</button>
       <button id="clear" class="danger" title="清空当前标签页记录">清空</button>
@@ -44,6 +45,31 @@
   </header>
 
   <main>
+    <section id="sniffPanel" class="sniff-panel" hidden>
+      <div class="sniff-top-feature">
+        <button id="fingerprintScan" class="sniff-feature-button" title="跳转到指纹扫描工作台">
+          <span>NEW</span>
+          <strong>指纹扫描</strong>
+          <em>扫描</em>
+        </button>
+      </div>
+      <div class="sniff-head">
+        <div>
+          <strong>网站嗅探</strong>
+          <span id="sniffStatus">等待识别</span>
+        </div>
+        <div class="sniff-actions">
+          <button id="sniffExport" title="导出网站嗅探结果">导出</button>
+          <button id="sniffClose" title="关闭网站嗅探结果">关闭</button>
+        </div>
+      </div>
+      <div id="sniffSummary" class="sniff-summary"></div>
+      <div id="sniffResults" class="sniff-results"></div>
+      <details class="sniff-evidence-box">
+        <summary>命中证据</summary>
+        <div id="sniffEvidence"></div>
+      </details>
+    </section>
     <ul id="list"></ul>
     <div id="empty" class="empty">暂无代码资源。请刷新当前页面，或点击“刷新”重新采集。</div>
   </main>
@@ -58,7 +84,7 @@
       <div class="mark mini" aria-hidden="true"><img src="icons/icon48.png" alt=""></div>
       <div>
         <strong>玄镜 AegisScope 使用许可与免责声明</strong>
-        <span>V1.0.1</span>
+        <span>V1.1.2</span>
       </div>
     </div>
     <div class="terms-body">
@@ -126,6 +152,7 @@
     <pre id="viewer-content"></pre>
   </dialog>
 
+  <script src="sniff-rules.js"></script>
   <script src="popup.js"></script>
 </body>
 </html>
