@@ -1,9 +1,9 @@
-# 玄镜 AegisScope
+﻿# 玄镜 AegisScope
 
 <div align="center">
   <img src="icons/icon128.png" alt="玄镜 AegisScope" width="88" height="88">
 
-  <h2>玄镜 AegisScope V1.1.2</h2>
+  <h2>玄镜 AegisScope V1.1.3</h2>
 
   <p>
     前端代码资产采集、网站嗅探、指纹扫描、泄露扫描、漏洞审计与 Vue Router 运行分析工具。
@@ -71,9 +71,13 @@
 
 网站嗅探模块采用玄镜自研的多来源识别思路，用于对当前站点进行被动技术识别。点击主弹窗中的“网站嗅探”后，结果会直接在当前插件页面内展开，不会跳转到新的页面。模块会结合页面 HTML、响应头、Cookie、Meta、脚本资源、运行时全局变量和资源路径等多类证据，快速识别 Web Server、运行时、前后端框架、CMS、JavaScript 库、UI 框架、字体脚本、数据库线索、分析工具、CDN 和安全响应头等信息。
 
-识别结果会按技术分类展示技术名、版本和命中证据，便于人工复核，避免只依赖单个关键词造成误报。
+识别结果会按技术分类展示技术名、版本和命中证据，便于人工复核，避免只依赖单个关键词造成误报。V1.1.3 增强了 jQuery 运行时、脚本路径、资源路径和页面脚本证据识别；识别到 jQuery 后，会显示“jQuery低版本漏洞验证”入口，并将嗅探到的目标 jQuery 链接传入验证页面。
 
 ![网站嗅探](docs/images/site-sniff-overview.png)
+
+![jQuery 低版本漏洞验证入口](docs/images/jquery-vuln-entry.png)
+
+![jQuery 低版本漏洞验证](docs/images/jquery-vuln-check.png)
 
 ### 指纹扫描
 
@@ -161,6 +165,7 @@ Vue 工具模块用于分析当前页面中的 Vue / Vue Router 运行时实例�
 | 主弹窗 | `popup.html` | 代码资产列表、JS/HTML 保存、入口导航 |
 | 网站嗅探 | `popup.html` / `sniff-rules.js` | 主弹窗内嵌展示技术栈、CMS、框架、库、响应头与安全头识别 |
 | 指纹扫描 | `fingerprint-scan.html` / `fingerprint-rules.js` | 从网站嗅探入口进入，自动扫描站点产品指纹并展示命中证据 |
+| jQuery 低版本验证 | `jquery-vuln-loader.html` / `jquery-vuln-check.html` | 从网站嗅探的 jQuery 结果进入，获取并加载嗅探到的目标 jQuery 链接后展示 PoC 验证页面 |
 | 泄露扫描 | `scan.html` | 敏感信息、密钥、加密风险、打包产物分析 |
 | 漏洞审计 | `vuln-scan.html` | 源码审计、API 测试、漏洞验证 |
 | Vue 控制台 | `vue-tools.html` | Vue Router 运行时分析与路由跳转 |
@@ -174,7 +179,7 @@ Vue 工具模块用于分析当前页面中的 Vue / Vue Router 运行时实例�
 
 ### Chrome / Edge 加载未打包扩展
 
-1. 解压 `玄镜 AegisScope_V1.1.2.zip`。
+1. 解压 `玄镜 AegisScope_V1.1.3.zip`。
 2. 打开浏览器扩展管理页面：
    - Chrome：`chrome://extensions`
    - Edge：`edge://extensions`
@@ -208,7 +213,8 @@ Vue 工具模块用于分析当前页面中的 Vue / Vue Router 运行时实例�
 2. 点击主弹窗中的“网站嗅探”。
 3. 在当前插件页面内查看按分类展示的技术栈、版本、站点画像和响应头。
 4. 根据每条结果中的命中证据和置信度进行人工复核。
-5. 可导出 JSON 报告。
+5. 如识别到 jQuery，可点击“jQuery低版本漏洞验证”进入验证页面。
+6. 可导出 JSON 报告。
 
 ### 指纹扫描
 
@@ -335,6 +341,14 @@ HTML 单文件保存会尽量内联当前页面可访问的 CSS、图片、图�
 
 ## 版本记录
 
+### V1.1.3
+
+- 基于 V1.1.2 的功能升级和修复版本。
+- 增强网站嗅探中的 jQuery 识别强度，增加运行时版本、脚本路径、资源路径和内联脚本证据。
+- 网站嗅探识别到 jQuery 后，新增“jQuery低版本漏洞验证”入口。
+- 新增 jQuery 低版本验证页面，打开时默认使用嗅探到的目标网站 jQuery 链接，也支持手动填写 jQuery 链接并优先使用手动链接验证。
+- jQuery 低版本验证页面保留 PoC1、PoC2、PoC3、`Assign to innerHTML` 和 `Append via .html()` 交互。
+
 ### V1.1.2
 
 - 基于 V1.0.1 的功能升级和修复版本。
@@ -360,5 +374,5 @@ HTML 单文件保存会尽量内联当前页面可访问的 CSS、图片、图�
 - 支持 JSON / Markdown 报告导出。
 
 
-玄镜 AegisScope V1.1.2  
+玄镜 AegisScope V1.1.3  
 为授权前端安全测试、代码资产分析和漏洞审计而生。

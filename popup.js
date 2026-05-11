@@ -123,8 +123,10 @@ async function init() {
   });
   els.sniffExport.addEventListener('click', exportSniffJson);
   els.sniffResults.addEventListener('click', (event) => {
-    const button = event.target.closest('[data-action="vue-tools"]');
-    if (button) openVueTools();
+    const vueButton = event.target.closest('[data-action="vue-tools"]');
+    if (vueButton) openVueTools();
+    const jqueryButton = event.target.closest('[data-action="jquery-vuln-check"]');
+    if (jqueryButton) openJqueryVulnCheck(jqueryButton.dataset.version || '', jqueryButton.dataset.jquerySrc || '');
   });
   els.saveClose.addEventListener('click', () => els.saveDialog.close());
   els.saveJsPackage.addEventListener('click', () => {
@@ -1349,13 +1351,82 @@ function renderSniffFinding(item) {
       <span>${sniffScoreLabel(item.score)}</span>
     </button>
   `;
-  if (item.name !== 'Vue.js') return main;
-  return `
-    <div class="sniff-tech-row">
-      ${main}
-      <button class="sniff-vue-jump" data-action="vue-tools" title="跳转Vue 工具">跳转Vue 工具</button>
-    </div>
-  `;
+  if (item.name === 'Vue.js') {
+    return `
+      <div class="sniff-tech-row">
+        ${main}
+        <button class="sniff-vue-jump" data-action="vue-tools" title="跳转Vue 工具">跳转Vue 工具</button>
+      </div>
+    `;
+  }
+  if (item.name === 'jQuery') {
+    const jquerySrc = findJqueryScriptUrl(item);
+    return `
+      <div class="sniff-tech-row sniff-tech-row-stack">
+        ${main}
+        <button class="sniff-jquery-check" data-action="jquery-vuln-check" data-version="${escapeAttr(item.version || '')}" data-jquery-src="${escapeAttr(jquerySrc)}" title="jQuery低版本漏洞验证">jQuery低版本漏洞验证</button>
+      </div>
+    `;
+  }
+  return main;
+}
+
+function findJqueryScriptUrl(item) {
+  const candidates = [
+    ...(sniffState.signals?.scriptSrc || []),
+    ...(sniffState.signals?.resourceUrls || []),
+    ...(item?.evidences || []).flatMap((ev) => [ev.context, ev.value])
+  ];
+  let best = '';
+  let bestScore = 0;
+  for (const raw of candidates) {
+    const text = String(raw || '');
+    for (const url of extractJqueryCandidateUrls(text)) {
+      const score = scoreJqueryCoreUrl(url);
+      if (score > bestScore) {
+        best = url;
+        bestScore = score;
+      }
+    }
+  }
+  return bestScore > 0 ? best : '';
+}
+
+function extractJqueryCandidateUrls(text) {
+  const out = [];
+  const patterns = [
+    /https?:\/\/[^\s"'<>)]*\.js(?:[?#][^\s"'<>)]*)?/ig,
+    /(?:^|[\s"'(])((?:\/|\.\/|\.\.\/)[^\s"'<>)]*\.js(?:[?#][^\s"'<>)]*)?)/ig
+  ];
+  for (const pattern of patterns) {
+    for (const match of String(text || '').matchAll(pattern)) {
+      const raw = match[1] || match[0] || '';
+      const value = raw.trim();
+      if (!value) continue;
+      try {
+        out.push(new URL(value, sniffState.signals?.url || location.href).href);
+      } catch {}
+    }
+  }
+  return sniffUnique(out);
+}
+
+function scoreJqueryCoreUrl(url) {
+  let file = '';
+  try {
+    file = new URL(url).pathname.split('/').pop() || '';
+  } catch {
+    file = String(url || '').split(/[/?#]/)[0].split('/').pop() || '';
+  }
+  const name = file.toLowerCase();
+  if (!/\.js$/i.test(file)) return 0;
+  if (/(superslide|validate|validation|easing|cookie|form|ui|mobile|mousewheel|colorbox|fancybox|chosen|ztree|datatable|lazyload|template|tmpl|plugin|plugins|migrate)/i.test(name)) return 0;
+  if (/^jquery(?:-\d+(?:\.\d+){0,3})?(?:\.min)?\.js$/i.test(file)) return 100;
+  if (/^jquery(?:\.\d+(?:\.\d+){0,3})?(?:\.min)?\.js$/i.test(file)) return 96;
+  if (/^jq(?:uery)?\d{2,4}(?:\.min)?\.js$/i.test(file)) return 94;
+  if (/^jquery(?:[-_.]min)?\.js$/i.test(file)) return 92;
+  if (/jquery/i.test(file) && /\d/.test(file)) return 54;
+  return 0;
 }
 
 function sniffScoreLabel(score) {
@@ -1654,6 +1725,16 @@ async function openVulnScan() {
 
 async function openVueTools() {
   const url = chrome.runtime.getURL(`vue-tools.html?tabId=${currentTabId}`);
+  await chrome.tabs.create({ url });
+}
+
+async function openJqueryVulnCheck(version = '', jquerySrc = '') {
+  const params = new URLSearchParams({
+    tabId: String(currentTabId || ''),
+    version: version || '',
+    jquerySrc: jquerySrc || ''
+  });
+  const url = chrome.runtime.getURL(`jquery-vuln-loader.html?${params.toString()}`);
   await chrome.tabs.create({ url });
 }
 

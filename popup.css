@@ -442,6 +442,10 @@ body.sniff-mode #empty {
   gap: 5px;
   width: 100%;
 }
+.sniff-tech-row-stack {
+  grid-template-columns: 1fr;
+  align-items: stretch;
+}
 .sniff-tech {
   display: inline-flex;
   align-items: center;
@@ -494,6 +498,23 @@ body.sniff-mode #empty {
 .sniff-vue-jump:hover {
   border-color: rgba(102,242,201,0.62);
   background: rgba(102,242,201,0.24);
+}
+.sniff-jquery-check {
+  min-height: 27px;
+  padding: 4px 8px;
+  border: 1px solid rgba(255,206,109,0.42);
+  border-radius: 999px;
+  background: rgba(255,206,109,0.14);
+  color: #ffe7ad;
+  font-size: 11px;
+  font-weight: 700;
+  white-space: nowrap;
+  width: fit-content;
+  max-width: 100%;
+}
+.sniff-jquery-check:hover {
+  border-color: rgba(255,206,109,0.68);
+  background: rgba(255,206,109,0.22);
 }
 .sniff-evidence-box {
   margin: 0 11px 11px;

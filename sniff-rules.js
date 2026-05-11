@@ -272,10 +272,17 @@ window.AEGISSCOPE_SNIFF_RULES = [
     name: 'jQuery',
     category: 'JavaScript 库',
     website: 'https://jquery.com',
+    minScore: 74,
     matchers: [
-      { source: 'globals', key: 'jQuery', regex: '.+', score: 94 },
+      { source: 'globals', key: 'jQuery.fn.jquery', regex: '([0-9][\\w.-]+)', score: 100, version: 1 },
       { source: 'globals', key: '$.fn.jquery', regex: '([0-9][\\w.-]+)', score: 98, version: 1 },
-      { source: 'scriptSrc', regex: 'jquery(?:-([0-9][\\w.-]+))?(?:\\.min)?\\.js', score: 88, version: 1 }
+      { source: 'globals', key: 'jQuery', regex: '.+', score: 94 },
+      { source: 'scriptSrc', regex: '(?:^|[\\W_/])jquery(?:\\.min|-([0-9][\\w.-]+))?(?:\\.min)?\\.js(?:[?#]|$)', score: 90, version: 1 },
+      { source: 'scriptSrc', regex: '(?:^|[\\W_/])jq(?:uery)?([0-9]{2,4})(?:\\.min)?\\.js(?:[?#]|$)', score: 88, version: 1 },
+      { source: 'resourceUrl', regex: '(?:^|[\\W_/])jquery(?:\\.min|-([0-9][\\w.-]+))?(?:\\.min)?\\.js(?:[?#]|$)', score: 84, version: 1 },
+      { source: 'resourceUrl', regex: '(?:^|[\\W_/])jq(?:uery)?([0-9]{2,4})(?:\\.min)?\\.js(?:[?#]|$)', score: 82, version: 1 },
+      { source: 'html', regex: '<script[^>]+src=["\'][^"\']*jquery(?:\\.min|-([0-9][\\w.-]+))?(?:\\.min)?\\.js', score: 82, version: 1 },
+      { source: 'scripts', regex: '\\bjQuery\\.fn\\.jquery\\b|\\$\\.fn\\.jquery\\b', score: 78 }
     ]
   },
   {
