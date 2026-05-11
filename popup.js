@@ -8,6 +8,7 @@ const els = {
   refresh: document.getElementById('refresh'),
   downloadAll: document.getElementById('downloadAll'),
   siteSniff: document.getElementById('siteSniff'),
+  beianQuery: document.getElementById('beianQuery'),
   fingerprintScan: document.getElementById('fingerprintScan'),
   securityScan: document.getElementById('securityScan'),
   vulnScan: document.getElementById('vulnScan'),
@@ -34,6 +35,17 @@ const els = {
   sniffEvidence: document.getElementById('sniffEvidence'),
   sniffExport: document.getElementById('sniffExport'),
   sniffClose: document.getElementById('sniffClose'),
+  beianPanel: document.getElementById('beianPanel'),
+  beianStatus: document.getElementById('beianStatus'),
+  beianDomain: document.getElementById('beianDomain'),
+  beianAnalyze: document.getElementById('beianAnalyze'),
+  beianCopy: document.getElementById('beianCopy'),
+  beianOfficial: document.getElementById('beianOfficial'),
+  beianExport: document.getElementById('beianExport'),
+  beianClose: document.getElementById('beianClose'),
+  beianSummary: document.getElementById('beianSummary'),
+  beianFindings: document.getElementById('beianFindings'),
+  beianLinks: document.getElementById('beianLinks'),
   repoLink: document.getElementById('repoLink'),
   topAuthorLink: document.getElementById('topAuthorLink'),
   authorLink: document.getElementById('authorLink')
@@ -52,10 +64,14 @@ let currentTabId = null;
 let currentTabHost = '';
 let scripts = [];
 let sniffState = { signals: null, findings: [] };
+let beianState = { signals: null, result: null };
+const beianApiCache = new Map();
 const downloadFetchCache = new Map();
 const TERMS_ACCEPTED_KEY = 'aegisscope_terms_accepted_v1';
 const SNIFF_REGEX_CACHE = new Map();
 const SNIFF_MAX_EVIDENCE_PER_RULE = 24;
+const BEIAN_API_CACHE_TTL = 24 * 60 * 60 * 1000;
+const BEIAN_API_CACHE_PREFIX = 'aegisscope_beian_api_cache_';
 
 bootstrap().catch((err) => setStatus(`初始化失败: ${err.message}`));
 
@@ -116,12 +132,27 @@ async function init() {
   });
   els.downloadAll.addEventListener('click', openSaveDialog);
   els.siteSniff.addEventListener('click', openSiteSniff);
+  els.beianQuery.addEventListener('click', openBeianQuery);
   els.fingerprintScan.addEventListener('click', openFingerprintScan);
   els.sniffClose.addEventListener('click', () => {
     els.sniffPanel.hidden = true;
     setAssetListVisible(true);
   });
   els.sniffExport.addEventListener('click', exportSniffJson);
+  els.beianClose.addEventListener('click', () => {
+    els.beianPanel.hidden = true;
+    setAssetListVisible(true);
+  });
+  els.beianAnalyze.addEventListener('click', () => analyzeBeianFromInput());
+  els.beianCopy.addEventListener('click', copyBeianSummary);
+  els.beianOfficial.addEventListener('click', openBeianOfficial);
+  els.beianExport.addEventListener('click', exportBeianJson);
+  els.beianLinks.addEventListener('click', (event) => {
+    const link = event.target.closest('a[data-url]');
+    if (!link) return;
+    event.preventDefault();
+    chrome.tabs.create({ url: link.dataset.url });
+  });
   els.sniffResults.addEventListener('click', (event) => {
     const vueButton = event.target.closest('[data-action="vue-tools"]');
     if (vueButton) openVueTools();
@@ -1451,6 +1482,671 @@ async function exportSniffJson() {
   await chrome.downloads.download({ url, filename: `js-extractor/site-sniff-${Date.now()}.json`, saveAs: true });
 }
 
+async function openBeianQuery() {
+  els.beianPanel.hidden = false;
+  els.sniffPanel.hidden = true;
+  setAssetListVisible(false);
+  els.beianStatus.textContent = '正在读取当前页面备案线索...';
+  els.beianSummary.innerHTML = '';
+  els.beianFindings.innerHTML = '<div class="empty visible">正在分析备案信息...</div>';
+  els.beianLinks.innerHTML = '';
+  setStatus('正在进行备案查询...');
+
+  try {
+    const page = await collectBeianPageSignals();
+    const signals = normalizeBeianSignals(page);
+    let result = analyzeBeianSignals(signals);
+    beianState = { signals, result };
+    els.beianDomain.value = result.queryDomain || '';
+    renderBeianResults();
+    els.beianStatus.textContent = '正在查询免费备案接口...';
+    const apiResults = await queryFreeBeianApis(result.queryDomain);
+    result = mergeBeianApiResults(result, apiResults);
+    beianState = { signals, result };
+    renderBeianResults();
+    els.beianStatus.textContent = result.findings.length || result.links.length
+      ? `查询完成：${result.findings.length} 条备案线索`
+      : '当前页面未发现明确备案线索，可打开官方入口复核';
+    setStatus(`备案查询完成：${result.findings.length} 条线索`);
+  } catch (err) {
+    els.beianStatus.textContent = `查询失败：${err.message}`;
+    els.beianFindings.innerHTML = '<div class="empty visible">备案查询失败。</div>';
+    setStatus(`备案查询失败：${err.message}`);
+  }
+}
+
+async function collectBeianPageSignals() {
+  const [result] = await chrome.scripting.executeScript({
+    target: { tabId: currentTabId },
+    func: collectBeianPageSignalsInPage
+  });
+  return result?.result || {};
+}
+
+function collectBeianPageSignalsInPage() {
+  const abs = (value) => {
+    try { return new URL(value, location.href).href; } catch { return ''; }
+  };
+  const links = Array.from(document.querySelectorAll('a[href]')).map((node) => ({
+    href: abs(node.getAttribute('href') || ''),
+    text: (node.textContent || '').replace(/\s+/g, ' ').trim().slice(0, 160),
+    title: (node.getAttribute('title') || '').replace(/\s+/g, ' ').trim().slice(0, 160)
+  })).filter((item) => item.href);
+  return {
+    url: location.href,
+    host: location.hostname,
+    title: document.title || '',
+    text: (document.body?.innerText || '').slice(0, 220000),
+    html: document.documentElement.outerHTML.slice(0, 520000),
+    links: links.slice(0, 1200)
+  };
+}
+
+function normalizeBeianSignals(page = {}) {
+  const host = normalizeBeianHost(page.host || sniffHost(page.url || '') || currentTabHost);
+  const rootDomain = getRootDomain(host);
+  return {
+    url: page.url || '',
+    title: page.title || '',
+    host,
+    rootDomain,
+    queryDomain: rootDomain || host,
+    text: String(page.text || ''),
+    html: String(page.html || ''),
+    links: Array.isArray(page.links) ? page.links : []
+  };
+}
+
+function analyzeBeianSignals(signals) {
+  const findings = dedupeBeianFindings([
+    ...extractBeianFindings(signals.text, '页面正文'),
+    ...extractBeianFindings(stripBeianHtml(signals.html), '页面源码')
+  ]);
+  const links = extractBeianLinks(signals.links);
+  return {
+    generatedAt: new Date().toISOString(),
+    url: signals.url || '',
+    title: signals.title || '',
+    host: signals.host || '',
+    rootDomain: signals.rootDomain || '',
+    queryDomain: signals.queryDomain || signals.rootDomain || signals.host || '',
+    findings,
+    links,
+    apiSources: []
+  };
+}
+
+async function queryFreeBeianApis(domain) {
+  const query = normalizeBeianDomain(domain);
+  if (!query || query === 'localhost' || /^\d{1,3}(?:\.\d{1,3}){3}$/.test(query)) return [];
+  const cached = beianApiCache.get(query);
+  if (cached && Date.now() - cached.time < BEIAN_API_CACHE_TTL) {
+    return cached.results.map((item) => ({ ...item, cached: true }));
+  }
+  const persisted = await getPersistedBeianApiCache(query);
+  if (persisted) {
+    beianApiCache.set(query, { time: persisted.time, results: persisted.results });
+    return persisted.results.map((item) => ({ ...item, cached: true }));
+  }
+  const apis = [
+    {
+      name: 'UAPI',
+      url: `https://uapis.cn/api/v1/network/icp?domain=${encodeURIComponent(query)}`,
+      method: 'GET'
+    },
+    {
+      name: '远梦API',
+      url: `http://api.mmp.cc/api/icp?domain=${encodeURIComponent(query)}`,
+      method: 'GET'
+    },
+    {
+      name: '创信API',
+      url: `https://apis.jxcxin.cn/api/icp?name=${encodeURIComponent(query)}&type=1`,
+      method: 'GET'
+    },
+    {
+      name: '接口盒子',
+      url: `https://cn.apihz.cn/api/wangzhan/icp.php?id=88888888&key=88888888&domain=${encodeURIComponent(query)}`,
+      method: 'GET'
+    },
+    {
+      name: '小尘API',
+      url: `https://api.xcvts.cn/api/icp/2?url=${encodeURIComponent(query)}`,
+      method: 'GET'
+    },
+    {
+      name: 'ICP API Plus',
+      url: 'https://icp.api.plus/',
+      method: 'POST',
+      body: new URLSearchParams({ type: 'web', search: query, pageNum: '1', pageSize: '10' }).toString(),
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded;charset=UTF-8' }
+    }
+  ];
+  const results = await Promise.all(apis.map((api) => queryBeianApi(api, query)));
+  beianApiCache.set(query, { time: Date.now(), results });
+  await setPersistedBeianApiCache(query, results);
+  if (beianApiCache.size > 20) beianApiCache.delete(beianApiCache.keys().next().value);
+  return results;
+}
+
+async function getPersistedBeianApiCache(domain) {
+  try {
+    const key = BEIAN_API_CACHE_PREFIX + safeName(domain);
+    const data = await chrome.storage.local.get(key);
+    const cached = data?.[key];
+    if (!cached || !Array.isArray(cached.results)) return null;
+    if (Date.now() - Number(cached.time || 0) >= BEIAN_API_CACHE_TTL) {
+      await chrome.storage.local.remove(key);
+      return null;
+    }
+    return cached;
+  } catch {
+    return null;
+  }
+}
+
+async function setPersistedBeianApiCache(domain, results) {
+  try {
+    const key = BEIAN_API_CACHE_PREFIX + safeName(domain);
+    await chrome.storage.local.set({
+      [key]: {
+        time: Date.now(),
+        domain,
+        results
+      }
+    });
+  } catch {}
+}
+
+async function queryBeianApi(api, domain) {
+  try {
+    const response = await fetchWithTimeout(api.url, {
+      method: api.method || 'GET',
+      headers: api.headers || {},
+      body: api.body || undefined,
+      cache: 'no-store',
+      credentials: 'omit'
+    }, 8500);
+    const text = await response.text();
+    const payload = parseMaybeJson(text);
+    const records = normalizeIcpApiPayload(api.name, payload, text, domain);
+    return {
+      name: api.name,
+      ok: response.ok && records.length > 0,
+      status: response.status,
+      message: records.length ? `命中 ${records.length} 条` : beianApiMessage(payload, text, response.status),
+      records
+    };
+  } catch (err) {
+    return {
+      name: api.name,
+      ok: false,
+      status: 0,
+      message: err.message || String(err),
+      records: []
+    };
+  }
+}
+
+async function fetchWithTimeout(url, init, timeout) {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeout);
+  try {
+    return await fetch(url, { ...init, signal: controller.signal });
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+function parseMaybeJson(text) {
+  const raw = String(text || '').trim();
+  if (!raw) return null;
+  try { return JSON.parse(raw); } catch {}
+  const jsonLike = raw.match(/\{[\s\S]*\}|\[[\s\S]*\]/)?.[0];
+  if (jsonLike) {
+    try { return JSON.parse(jsonLike); } catch {}
+  }
+  return null;
+}
+
+function normalizeIcpApiPayload(source, payload, rawText, domain) {
+  const records = [];
+  const pushRecord = (item) => {
+    const record = normalizeIcpRecord(source, item, domain);
+    if (record.icp || record.owner || record.title || record.domain) records.push(record);
+  };
+  if (Array.isArray(payload)) payload.forEach(pushRecord);
+  else if (payload && typeof payload === 'object') {
+    if (Array.isArray(payload.data)) payload.data.forEach(pushRecord);
+    else if (payload.data && typeof payload.data === 'object') {
+      if (Array.isArray(payload.data.list)) payload.data.list.forEach(pushRecord);
+      else if (Array.isArray(payload.data.rows)) payload.data.rows.forEach(pushRecord);
+      else if (Array.isArray(payload.data.results)) payload.data.results.forEach(pushRecord);
+      else pushRecord(payload.data);
+    } else if (payload.icp && typeof payload.icp === 'object') {
+      pushRecord({ ...payload.icp, domain: payload.url || payload.domain || domain });
+    } else if (payload.params && typeof payload.params === 'object') {
+      if (Array.isArray(payload.params.list)) payload.params.list.forEach(pushRecord);
+      else pushRecord(payload.params);
+    } else if (payload.info && typeof payload.info === 'object') {
+      pushRecord({ ...payload.info, domain });
+    } else if (Array.isArray(payload.list)) payload.list.forEach(pushRecord);
+    else if (payload.list && typeof payload.list === 'object') pushRecord(payload.list);
+    else if (Array.isArray(payload.result)) payload.result.forEach(pushRecord);
+    else if (payload.result && typeof payload.result === 'object') pushRecord(payload.result);
+    else pushRecord(payload);
+  }
+  if (!records.length) {
+    const icps = extractBeianFindings(rawText, `接口查询/${source}`)
+      .filter((item) => /备案号/.test(item.type))
+      .map((item) => item.value);
+    for (const icp of icps) pushRecord({ domain, icp });
+  }
+  return dedupeIcpRecords(records);
+}
+
+function normalizeIcpRecord(source, item, domain) {
+  const obj = item && typeof item === 'object' ? item : {};
+  const pick = (...keys) => keys.map((key) => obj[key]).find((value) => value !== undefined && value !== null && String(value).trim() !== '');
+  let icp = normalizeBeianValue(pick('icp', 'ICP', 'beian', 'license', 'licence', 'mainLicence', 'main_licence', 'serviceLicence', 'service_licence', 'domain_licence', 'website_licence', 'siteLicense', 'siteLicence', 'recordNo', 'record_no', 'icpCode', 'icp_code', 'icpNo', 'icp_no', 'mainLicense', 'serviceLicense', 'DomainIcpNum', '主体备案号', '网站备案号', '网站备案/许可证号', '备案号') || '');
+  if (/^(?:未备案|无|暂无|null|undefined)$/i.test(icp)) icp = '';
+  return {
+    source,
+    domain: normalizeBeianHost(pick('domain', 'Domain', 'domain_name', 'siteDomain', 'site_domain', 'homeUrl', 'web', 'url', '网站首页网址', '网站域名') || domain),
+    icp,
+    owner: normalizeBeianText(pick('owner', 'unit', 'unitName', 'unit_name', 'company', 'companyName', 'CompanyName', 'name', 'domain_owner', 'organizer', 'mainUnit', 'main_unit', 'sponsor', '主办单位名称', '主办单位') || ''),
+    type: normalizeBeianText(pick('type', 'properties', 'domain_type', 'unitType', 'unit_type', 'CompanyType', 'nature', 'mainUnitNature', 'main_unit_nature', '单位性质', '主办单位性质', '备案类型') || ''),
+    title: normalizeBeianText(pick('title', 'siteName', 'site_name', 'websiteName', 'webName', 'web_name', 'serviceName', 'service_name', '网站名称') || ''),
+    time: normalizeBeianText(pick('time', 'passtime', 'auditTime', 'audit_time', 'approve_date', 'domain_approve_date', 'updateTime', 'update_time', '备案时间', '审核时间') || ''),
+    status: normalizeBeianText(pick('status', 'domain_status', 'msg', 'message') || '')
+  };
+}
+
+function dedupeIcpRecords(records) {
+  const seen = new Set();
+  return records.filter((record) => {
+    const key = `${record.source}|${record.domain}|${record.icp}|${record.owner}|${record.title}`;
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+}
+
+function mergeBeianApiResults(result, apiSources) {
+  const apiFindings = buildMergedBeianApiFindings(apiSources || []);
+  const consistency = summarizeBeianApiConsistency(apiSources || []);
+  return {
+    ...result,
+    findings: dedupeBeianFindings([...(result.findings || []), ...apiFindings]),
+    apiSources: apiSources || [],
+    consistency
+  };
+}
+
+function buildMergedBeianApiFindings(apiSources) {
+  const groups = new Map();
+  for (const source of apiSources) {
+    for (const record of source.records || []) {
+      if (!record.icp && !record.owner && !record.title) continue;
+      const key = record.icp || `${record.domain}|${record.owner}|${record.title}`;
+      if (!groups.has(key)) {
+        groups.set(key, {
+          type: '接口备案结果',
+          value: record.icp || record.owner || record.title,
+          sourceNames: new Set(),
+          records: []
+        });
+      }
+      const group = groups.get(key);
+      group.sourceNames.add(source.name);
+      group.records.push(record);
+    }
+  }
+  return Array.from(groups.values()).map((group) => {
+    const best = group.records.find((item) => item.icp) || group.records[0] || {};
+    return {
+      type: group.type,
+      value: best.icp || best.owner || best.title || '',
+      source: `免费接口/${Array.from(group.sourceNames).join('、')}`,
+      confidence: '中',
+      context: formatIcpRecordContext(best),
+      record: best,
+      sourceNames: Array.from(group.sourceNames)
+    };
+  });
+}
+
+function summarizeBeianApiConsistency(apiSources) {
+  const success = (apiSources || []).filter((source) => source.ok && source.records?.length);
+  const icpMap = new Map();
+  const ownerMap = new Map();
+  for (const source of success) {
+    for (const record of source.records || []) {
+      const icp = normalizeBeianValue(record.icp || '');
+      const owner = normalizeBeianText(record.owner || '');
+      if (icp) {
+        if (!icpMap.has(icp)) icpMap.set(icp, new Set());
+        icpMap.get(icp).add(source.name);
+      }
+      if (owner) {
+        if (!ownerMap.has(owner)) ownerMap.set(owner, new Set());
+        ownerMap.get(owner).add(source.name);
+      }
+    }
+  }
+  const icpValues = Array.from(icpMap.keys());
+  const ownerValues = Array.from(ownerMap.keys());
+  let status = '未命中';
+  let message = '免费接口暂未返回可比对的备案结果';
+  if (success.length === 1) {
+    status = '单源命中';
+    message = `${success[0].name} 返回备案结果，建议结合官方入口复核`;
+  } else if (success.length > 1 && icpValues.length <= 1 && ownerValues.length <= 1) {
+    status = '多源一致';
+    message = `${success.length} 个接口返回结果一致`;
+  } else if (success.length > 1) {
+    status = '结果不一致';
+    message = `${success.length} 个接口返回结果存在差异，建议以官方入口复核为准`;
+  }
+  return {
+    status,
+    message,
+    successCount: success.length,
+    totalCount: apiSources.length,
+    icpValues,
+    ownerValues
+  };
+}
+
+function formatIcpRecordContext(record) {
+  return [
+    record.domain ? `域名：${record.domain}` : '',
+    record.owner ? `主体：${record.owner}` : '',
+    record.type ? `类型：${record.type}` : '',
+    record.title ? `网站名称：${record.title}` : '',
+    record.time ? `审核时间：${record.time}` : '',
+    record.status ? `状态：${record.status}` : ''
+  ].filter(Boolean).join('；');
+}
+
+function beianApiMessage(payload, text, status) {
+  const candidates = [];
+  if (payload && typeof payload === 'object') {
+    candidates.push(payload.msg, payload.message, payload.error, payload.reason);
+  }
+  const found = candidates.find((item) => item !== undefined && item !== null && String(item).trim());
+  if (found) return String(found).slice(0, 120);
+  if (status && status !== 200) return `HTTP ${status}`;
+  return String(text || '未返回备案记录').replace(/\s+/g, ' ').slice(0, 120);
+}
+
+function extractBeianFindings(text, source) {
+  const value = String(text || '');
+  const patterns = [
+    { type: 'ICP备案号', regex: /[\u4e00-\u9fa5]{0,8}ICP(?:备)?\s*\d{5,12}号(?:-\d+)?/gi, confidence: '高' },
+    { type: '公安备案号', regex: /[\u4e00-\u9fa5]{0,8}公网安备\s*\d{10,20}号?/gi, confidence: '高' },
+    { type: '许可证线索', regex: /(?:增值电信业务经营许可证|ICP许可证|EDI许可证)\s*[:：]?\s*[\u4e00-\u9fa5A-Z0-9-]{4,40}/gi, confidence: '中' }
+  ];
+  const out = [];
+  for (const item of patterns) {
+    for (const match of value.matchAll(item.regex)) {
+      const raw = normalizeBeianValue(match[0]);
+      if (!raw) continue;
+      out.push({
+        type: item.type,
+        value: raw,
+        source,
+        confidence: item.confidence,
+        context: beianContext(value, match.index || 0, raw.length)
+      });
+    }
+  }
+  return out;
+}
+
+function dedupeBeianFindings(items) {
+  const seen = new Set();
+  return items.filter((item) => {
+    const key = `${item.type}|${item.value}`;
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  }).sort((a, b) => beianTypeRank(a.type) - beianTypeRank(b.type));
+}
+
+function beianTypeRank(type) {
+  const order = ['ICP备案号', '接口备案结果', '公安备案号', '许可证线索'];
+  const index = order.indexOf(type);
+  return index === -1 ? order.length : index;
+}
+
+function extractBeianLinks(links) {
+  const seen = new Set();
+  const out = [];
+  for (const item of links || []) {
+    const href = String(item.href || '');
+    const text = `${item.text || ''} ${item.title || ''} ${href}`;
+    if (!/(备案|工信部|公安|网安|beian|miit|mps|gov\.cn|icp)/i.test(text)) continue;
+    if (seen.has(href)) continue;
+    seen.add(href);
+    out.push({
+      href,
+      text: item.text || item.title || href,
+      type: /miit|工信部|ICP|icp/i.test(text) ? 'ICP备案链接' : /公安|网安|mps/i.test(text) ? '公安备案链接' : '备案相关链接'
+    });
+    if (out.length >= 30) break;
+  }
+  return out;
+}
+
+function renderBeianResults() {
+  const result = beianState.result || { findings: [], links: [] };
+  const apiHits = (result.apiSources || []).filter((item) => item.ok).length;
+  const consistency = result.consistency || { status: '待查询', message: '等待接口返回', successCount: apiHits, totalCount: result.apiSources?.length || 0 };
+  const cacheUsed = (result.apiSources || []).some((item) => item.cached);
+  els.beianSummary.innerHTML = [
+    ['目标域名', result.queryDomain || '-'],
+    ['接口命中', apiHits],
+    ['一致性', consistency.status]
+  ].map(([label, value]) => `<div class="beian-stat"><span>${escapeHtml(label)}</span><strong title="${escapeAttr(value)}">${escapeHtml(value)}</strong></div>`).join('');
+
+  els.beianFindings.innerHTML = renderBeianFindingSections(result.findings || []);
+
+  els.beianLinks.innerHTML = result.links.length ? result.links.map((item) => `
+    <div class="beian-item">
+      <strong>${escapeHtml(item.type)}</strong>
+      <a href="#" data-url="${escapeAttr(item.href)}">${escapeHtml(item.text || item.href)}</a>
+      <span>${escapeHtml(item.href)}</span>
+    </div>
+  `).join('') : '<div class="empty visible">当前页面未发现备案相关链接。</div>';
+  if (result.apiSources?.length) {
+    const consistencyHtml = `
+      <div class="beian-item beian-source ${beianConsistencyClass(consistency.status)}">
+        <strong>多源一致性 · ${escapeHtml(consistency.status)}</strong>
+        <code>${escapeHtml(consistency.message)}${cacheUsed ? '（使用缓存）' : ''}</code>
+        <span>命中 ${escapeHtml(consistency.successCount)} / ${escapeHtml(consistency.totalCount)} 个接口</span>
+      </div>
+    `;
+    const sourceHtml = result.apiSources.map((item) => `
+      <div class="beian-item beian-source ${item.ok ? 'source-ok' : 'source-fail'}">
+        <strong>免费接口 · ${escapeHtml(item.name)}</strong>
+        <code>${escapeHtml(item.ok ? item.message : `未命中 / ${item.message}`)}${item.cached ? '（缓存）' : ''}</code>
+      </div>
+    `).join('');
+    els.beianLinks.insertAdjacentHTML('beforeend', consistencyHtml + sourceHtml);
+  }
+}
+
+function renderBeianFindingSections(findings) {
+  if (!findings.length) return '<div class="empty visible">当前页面未发现明确备案号。可点击“官方入口”进行权威查询。</div>';
+  const apiFindings = findings.filter((item) => item.type === '接口备案结果');
+  const pageFindings = findings.filter((item) => item.type !== '接口备案结果');
+  const sections = [];
+  if (apiFindings.length) {
+    sections.push(`
+      <div class="beian-section">
+        <div class="beian-section-title">接口备案结果</div>
+        ${apiFindings.map(renderBeianApiFinding).join('')}
+      </div>
+    `);
+  }
+  if (pageFindings.length) {
+    sections.push(`
+      <div class="beian-section">
+        <div class="beian-section-title">页面提取线索</div>
+        ${pageFindings.map(renderBeianPageFinding).join('')}
+      </div>
+    `);
+  }
+  return `<div class="beian-finding-columns">${sections.join('')}</div>`;
+}
+
+function renderBeianApiFinding(item) {
+  const record = item.record || {};
+  const fields = [
+    ['备案号', record.icp || item.value],
+    ['主办单位', record.owner || '-'],
+    ['单位性质', record.type || '-'],
+    ['网站名称', record.title || '-'],
+    ['审核时间', record.time || '-'],
+    ['来源接口', item.sourceNames?.join('、') || item.source.replace(/^免费接口\//, '') || '-']
+  ];
+  return `
+    <div class="beian-item beian-api-result">
+      <strong>${escapeHtml(item.type)} · ${escapeHtml(item.confidence)}</strong>
+      <div class="beian-record-grid">
+        ${fields.map(([label, value]) => `
+          <div class="beian-record-field">
+            <span>${escapeHtml(label)}</span>
+            <b>${escapeHtml(value || '-')}</b>
+          </div>
+        `).join('')}
+      </div>
+      ${item.context ? `<p>${escapeHtml(item.context)}</p>` : ''}
+    </div>
+  `;
+}
+
+function renderBeianPageFinding(item) {
+  return `
+    <div class="beian-item beian-page-result">
+      <strong>${escapeHtml(item.type)} · ${escapeHtml(item.confidence)}</strong>
+      <code>${escapeHtml(item.value)}</code>
+      <span>${escapeHtml(item.source)}</span>
+      ${item.context ? `<p>${escapeHtml(item.context)}</p>` : ''}
+    </div>
+  `;
+}
+
+function beianConsistencyClass(status) {
+  if (status === '多源一致') return 'source-ok';
+  if (status === '结果不一致') return 'source-warn';
+  if (status === '单源命中') return 'source-warn';
+  return 'source-fail';
+}
+
+async function analyzeBeianFromInput() {
+  if (!beianState.signals) {
+    openBeianQuery();
+    return;
+  }
+  const domain = normalizeBeianDomain(els.beianDomain.value) || beianState.signals.queryDomain || '';
+  const signals = { ...beianState.signals, queryDomain: domain, rootDomain: domain || beianState.signals.rootDomain };
+  let result = analyzeBeianSignals(signals);
+  beianState = { signals, result };
+  els.beianDomain.value = beianState.result.queryDomain || '';
+  renderBeianResults();
+  els.beianStatus.textContent = '正在查询免费备案接口...';
+  const apiResults = await queryFreeBeianApis(result.queryDomain);
+  result = mergeBeianApiResults(result, apiResults);
+  beianState = { signals, result };
+  renderBeianResults();
+  els.beianStatus.textContent = `查询完成：${beianState.result.findings.length} 条备案线索`;
+  setStatus(`备案查询完成：${beianState.result.findings.length} 条线索`);
+}
+
+async function copyBeianSummary() {
+  const result = beianState.result;
+  if (!result) {
+    setStatus('暂无备案查询结果可复制');
+    return;
+  }
+  const lines = [
+    `目标域名：${result.queryDomain || '-'}`,
+    `页面：${result.url || '-'}`,
+    `接口一致性：${result.consistency?.status || '-'} ${result.consistency?.message || ''}`.trim(),
+    '',
+    '备案线索：',
+    ...(result.findings.length ? result.findings.map((item) => `- ${item.type}: ${item.value}`) : ['- 未发现']),
+    '',
+    '相关链接：',
+    ...(result.links.length ? result.links.map((item) => `- ${item.text}: ${item.href}`) : ['- 未发现'])
+  ];
+  await copyText(lines.join('\n'));
+}
+
+async function openBeianOfficial() {
+  await chrome.tabs.create({ url: 'https://beian.miit.gov.cn/' });
+}
+
+async function exportBeianJson() {
+  if (!beianState.result) {
+    setStatus('暂无备案查询结果可导出');
+    return;
+  }
+  const blob = new Blob([JSON.stringify(beianState.result, null, 2)], { type: 'application/json;charset=utf-8' });
+  const url = URL.createObjectURL(blob);
+  await chrome.downloads.download({ url, filename: `js-extractor/beian-query-${Date.now()}.json`, saveAs: true });
+}
+
+function normalizeBeianValue(value) {
+  return String(value || '').replace(/\s+/g, '').replace(/[，,。；;：:]+$/g, '').trim();
+}
+
+function normalizeBeianText(value) {
+  return String(value || '').replace(/\s+/g, ' ').trim().slice(0, 180);
+}
+
+function stripBeianHtml(html) {
+  return String(html || '')
+    .replace(/<script[\s\S]*?<\/script>/gi, ' ')
+    .replace(/<style[\s\S]*?<\/style>/gi, ' ')
+    .replace(/<[^>]+>/g, ' ')
+    .replace(/&nbsp;|&#160;/gi, ' ');
+}
+
+function beianContext(text, index, length) {
+  const start = Math.max(0, index - 42);
+  const end = Math.min(String(text || '').length, index + length + 42);
+  return String(text || '').slice(start, end).replace(/\s+/g, ' ').trim();
+}
+
+function normalizeBeianHost(value) {
+  return String(value || '').toLowerCase().replace(/^https?:\/\//, '').split('/')[0].split(':')[0].replace(/^www\./, '');
+}
+
+function normalizeBeianDomain(value) {
+  const text = String(value || '').trim();
+  if (!text) return '';
+  try {
+    return getRootDomain(new URL(/^https?:\/\//i.test(text) ? text : `http://${text}`).hostname);
+  } catch {
+    return getRootDomain(normalizeBeianHost(text));
+  }
+}
+
+function getRootDomain(host) {
+  const clean = normalizeBeianHost(host);
+  if (!clean) return '';
+  if (/^\d{1,3}(?:\.\d{1,3}){3}$/.test(clean) || clean === 'localhost') return clean;
+  const parts = clean.split('.').filter(Boolean);
+  if (parts.length <= 2) return clean;
+  const suffix = parts.slice(-2).join('.');
+  const cnSecondLevel = new Set(['com.cn', 'net.cn', 'org.cn', 'gov.cn', 'edu.cn', 'ac.cn', 'mil.cn', 'bj.cn', 'sh.cn', 'tj.cn', 'cq.cn', 'he.cn', 'sx.cn', 'nm.cn', 'ln.cn', 'jl.cn', 'hl.cn', 'js.cn', 'zj.cn', 'ah.cn', 'fj.cn', 'jx.cn', 'sd.cn', 'ha.cn', 'hb.cn', 'hn.cn', 'gd.cn', 'gx.cn', 'hi.cn', 'sc.cn', 'gz.cn', 'yn.cn', 'xz.cn', 'sn.cn', 'gs.cn', 'qh.cn', 'nx.cn', 'xj.cn', 'tw.cn', 'hk.cn', 'mo.cn']);
+  if (cnSecondLevel.has(suffix) && parts.length >= 3) return parts.slice(-3).join('.');
+  return parts.slice(-2).join('.');
+}
+
 function sniffGroups(items) {
   const groups = new Map();
   for (const item of items) {
@@ -1690,6 +2386,7 @@ async function openFingerprintScan() {
 
 async function openSiteSniff() {
   els.sniffPanel.hidden = false;
+  els.beianPanel.hidden = true;
   setAssetListVisible(false);
   els.sniffStatus.textContent = '正在快速识别当前页面...';
   els.sniffSummary.innerHTML = '';
