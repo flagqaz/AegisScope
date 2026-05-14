@@ -335,11 +335,33 @@ window.AEGISSCOPE_FINGERPRINT_RULES = [
   },
   {
     id: 'fanwei-ecology',
-    name: '泛微 Ecology',
+    name: '泛微 Ecology / Weaver OA',
     category: 'oa',
+    probePaths: [
+      '/login/Login.jsp?logintype=1',
+      '/wui/index.html#/?logintype=1',
+      '/wui/common/css/w7OVFont.css',
+      '/theme/ecology8/jquery/js/zdialog_wev8.js',
+      '/ecology8/lang/weaver_lang_7_wev8.js',
+      '/js/ecology8/lang/weaver_lang_7_wev8.js'
+    ],
     matchers: [
       { source: 'body', regex: 'weaver|ecology|wui/theme|/spa/portal', score: 88 },
-      { source: 'header', key: 'set-cookie', contains: 'ecology_JSessionid', score: 96 },
+      { source: 'url', regex: '/login/Login\\.jsp\\?logintype=1', score: 80 },
+      { source: 'body', contains: '"/login/Login.jsp?logintype=1"', score: 96 },
+      { source: 'body', contains: 'wui/theme/ecology8/page/images/login/username_wev8.png', score: 98 },
+      { source: 'body', contains: '/wui/common/css/w7OVFont.css', score: 96 },
+      { source: 'body', contains: '/wui/index.html#/?logintype=1', score: 96 },
+      { source: 'body', all: ['index_wev8.js', 'jquery_wev8.js'], score: 96 },
+      { source: 'body', all: ['client/jquery.client_wev8.js', 'typeof poppedwindow'], score: 96 },
+      { source: 'body', contains: '<script type="text/javascript" src="/js/ecology', score: 98 },
+      { source: 'body', contains: 'cloudstore/resource/pc/polyfill/polyfill.min.js', score: 94 },
+      { source: 'script', contains: 'ecology8/lang/weaver_lang_7_wev8.js', score: 96 },
+      { source: 'script', contains: '/theme/ecology8/jquery/js/zdialog_wev8.js', score: 96 },
+      { source: 'script', contains: 'client/jquery.client_wev8.js', score: 94 },
+      { source: 'header', key: 'set-cookie', regex: 'ecology[_-]?JSessionid|ecology=', score: 98 },
+      { source: 'header', key: 'set-cookie', contains: 'testBanCookie', score: 96 },
+      { source: 'title', regex: '泛微|e-cology|Weaver', score: 96, allowGenericTitle: true },
       { source: 'favicon', hash: ['1578525679'], score: 98 }
     ]
   },
