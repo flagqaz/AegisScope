@@ -491,8 +491,25 @@ window.AEGISSCOPE_SNIFF_RULES = [
     category: '构建工具',
     website: 'https://vitejs.dev',
     matchers: [
+      { source: 'globals', key: '__vite_is_modern_browser', regex: '.+', score: 98 },
       { source: 'html', regex: '/@vite/client|import\\.meta\\.env|vite/modulepreload', score: 94 },
+      { source: 'html', regex: 'id=["\']vite-legacy-(?:polyfill|entry)["\']|id=["\']vite-plugin-[^"\']+["\']|vite\\.svg["\'][^>]+rel=["\']icon|rel=["\']icon["\'][^>]+vite\\.svg', score: 94 },
+      { source: 'scriptSrc', regex: '/@vite/client|/assets/[^?#]+\\.[a-f0-9]{6,}\\.(?:m?js|css)(?:[?#]|$)', score: 82 },
       { source: 'resourceUrl', regex: '/assets/[^?#]+\\.[a-f0-9]{6,}\\.(?:js|css)', score: 74 }
+    ]
+  },
+  {
+    id: 'vitepress',
+    name: 'VitePress',
+    category: '内容分发',
+    website: 'https://vitepress.dev',
+    infers: ['Vue.js', 'Vite'],
+    minScore: 78,
+    matchers: [
+      { source: 'globals', key: '__VP_HASH_MAP__', regex: '.+', score: 98 },
+      { source: 'meta', key: 'generator', regex: 'VitePress(?:\\s+v?([0-9][\\w.-]+))?', score: 98, version: 1 },
+      { source: 'html', regex: '__VP_HASH_MAP__|VitePress|data-vitepress', score: 88 },
+      { source: 'scriptSrc', regex: '/assets/(?:app|chunks/(?:framework|theme))\\.[a-f0-9]{6,}\\.js(?:[?#]|$)', score: 78 }
     ]
   },
   {
