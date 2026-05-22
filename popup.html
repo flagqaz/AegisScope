@@ -24,7 +24,7 @@
         </div>
         <div class="title-stats">
           <button id="versionBadge" class="version" title="检查更新">
-            <span>V2.1.4</span>
+            <span>V2.1.5</span>
             <i id="updateDot" class="update-dot" hidden></i>
           </button>
           <span id="count" class="badge">0</span>
@@ -32,14 +32,14 @@
       </div>
     </div>
     <div class="action-row">
-      <button id="refresh" title="重新扫描">刷新</button>
+      <button id="refresh" title="重新采集并刷新当前插件页面数据">刷新全部</button>
       <button id="downloadAll" title="保存代码资源或完整页面">保存</button>
       <button id="siteSniff" title="网站技术栈、框架、CMS、库与响应头识别">网站嗅探</button>
       <button id="beianQuery" title="当前页面备案号、公安备案号和备案链接查询">备案查询</button>
       <button id="securityScan" title="对代码资源运行泄露扫描">泄露扫描</button>
       <button id="vulnScan" title="源码审计与低风险接口漏扫">漏扫审计</button>
       <button id="vueTools" title="Vue Router runtime tools">Vue 工具</button>
-      <button id="clear" class="danger" title="清空当前标签页记录">清空</button>
+      <button id="clear" class="danger" title="清空当前标签页插件记录">清空记录</button>
     </div>
   </header>
 
@@ -103,7 +103,7 @@
       </div>
     </section>
     <ul id="list"></ul>
-    <div id="empty" class="empty">暂无代码资源。请刷新当前页面，或点击“刷新”重新采集。</div>
+    <div id="empty" class="empty">暂无代码资源。请刷新当前页面，或点击“刷新全部”重新采集。</div>
   </main>
 
   <footer>
@@ -116,7 +116,7 @@
       <div class="mark mini" aria-hidden="true"><img src="icons/icon48.png" alt=""></div>
       <div>
         <strong>玄镜 AegisScope 使用许可与免责声明</strong>
-        <span>V2.1.4</span>
+        <span>V2.1.5</span>
       </div>
     </div>
     <div class="terms-body">
@@ -166,7 +166,7 @@
     <div class="update-body">
       <div class="update-version-row">
         <span>当前版本</span>
-        <b id="currentVersionText">V2.1.4</b>
+        <b id="currentVersionText">V2.1.5</b>
       </div>
       <div class="update-version-row">
         <span>最新版本</span>
