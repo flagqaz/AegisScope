@@ -11,6 +11,10 @@ const els = {
   securityScan: document.getElementById('securityScan'),
   vulnScan: document.getElementById('vulnScan'),
   vueTools: document.getElementById('vueTools'),
+  copyUnlock: document.getElementById('copyUnlock'),
+  webrtcGuard: document.getElementById('webrtcGuard'),
+  uaSwitch: document.getElementById('uaSwitch'),
+  charsetSwitch: document.getElementById('charsetSwitch'),
   clear: document.getElementById('clear'),
   rowTpl: document.getElementById('row-tpl'),
   viewer: document.getElementById('viewer'),
@@ -44,6 +48,41 @@ const els = {
   beianSummary: document.getElementById('beianSummary'),
   beianFindings: document.getElementById('beianFindings'),
   beianLinks: document.getElementById('beianLinks'),
+  copyPanel: document.getElementById('copyPanel'),
+  copyStatus: document.getElementById('copyStatus'),
+  copyClose: document.getElementById('copyClose'),
+  copyUnlockState: document.getElementById('copyUnlockState'),
+  copyUnlockApply: document.getElementById('copyUnlockApply'),
+  copySelectionNow: document.getElementById('copySelectionNow'),
+  copyUnlockDisable: document.getElementById('copyUnlockDisable'),
+  copyPersistHost: document.getElementById('copyPersistHost'),
+  copyAggressiveMode: document.getElementById('copyAggressiveMode'),
+  webrtcPanel: document.getElementById('webrtcPanel'),
+  webrtcStatus: document.getElementById('webrtcStatus'),
+  webrtcClose: document.getElementById('webrtcClose'),
+  webrtcState: document.getElementById('webrtcState'),
+  webrtcPolicy: document.getElementById('webrtcPolicy'),
+  webrtcStrongBlock: document.getElementById('webrtcStrongBlock'),
+  webrtcApply: document.getElementById('webrtcApply'),
+  webrtcTest: document.getElementById('webrtcTest'),
+  webrtcDisable: document.getElementById('webrtcDisable'),
+  uaPanel: document.getElementById('uaPanel'),
+  uaStatus: document.getElementById('uaStatus'),
+  uaClose: document.getElementById('uaClose'),
+  uaState: document.getElementById('uaState'),
+  // UA 修改功能开发预留，具体控件在 popup.html 中暂时注释。
+  // uaPreset: document.getElementById('uaPreset'),
+  // uaValue: document.getElementById('uaValue'),
+  // uaApply: document.getElementById('uaApply'),
+  // uaReset: document.getElementById('uaReset'),
+  charsetPanel: document.getElementById('charsetPanel'),
+  charsetStatus: document.getElementById('charsetStatus'),
+  charsetClose: document.getElementById('charsetClose'),
+  charsetState: document.getElementById('charsetState'),
+  // 网站编码修改功能开发预留，具体控件在 popup.html 中暂时注释。
+  // charsetValue: document.getElementById('charsetValue'),
+  // charsetApply: document.getElementById('charsetApply'),
+  // charsetReset: document.getElementById('charsetReset'),
   versionBadge: document.getElementById('versionBadge'),
   updateDot: document.getElementById('updateDot'),
   updateDialog: document.getElementById('updateDialog'),
@@ -76,6 +115,8 @@ let scripts = [];
 let activeMainView = 'sniff';
 let sniffState = { signals: null, findings: [] };
 let beianState = { signals: null, result: null };
+let copyUnlockState = { enabled: false, hostEnabled: false, host: '', options: { aggressive: true } };
+let webrtcGuardState = { enabled: false, config: { policy: 'default', strongBlock: false }, currentPolicy: '', apiSupported: false, registered: false };
 let updateState = {
   checked: false,
   hasUpdate: false,
@@ -206,6 +247,46 @@ async function init() {
     setActiveActionButton(els.vueTools);
     openVueTools();
   });
+  els.copyUnlock.addEventListener('click', () => openAssistPanel('copy'));
+  els.webrtcGuard.addEventListener('click', () => {
+    openAssistPanel('webrtc');
+    setStatus('WebRTC 防泄漏已接入，可应用浏览器隐私策略');
+    loadWebrtcGuardState().catch((err) => {
+      els.webrtcStatus.textContent = `读取状态失败: ${err.message}`;
+    });
+  });
+  els.uaSwitch.addEventListener('click', () => {
+    openAssistPanel('ua');
+    els.uaStatus.textContent = '功能正在开发中';
+    setStatus('UA 修改功能正在开发中');
+  });
+  els.charsetSwitch.addEventListener('click', () => {
+    openAssistPanel('charset');
+    els.charsetStatus.textContent = '功能正在开发中';
+    setStatus('网站编码修改功能正在开发中');
+  });
+  els.copyClose.addEventListener('click', closeAssistPanels);
+  els.webrtcClose.addEventListener('click', closeAssistPanels);
+  els.uaClose.addEventListener('click', closeAssistPanels);
+  els.charsetClose.addEventListener('click', closeAssistPanels);
+  els.copyUnlockApply.addEventListener('click', () => applyCopyUnlock(true));
+  els.copySelectionNow.addEventListener('click', copyCurrentSelectionFromPage);
+  els.copyUnlockDisable.addEventListener('click', () => applyCopyUnlock(false));
+  els.webrtcApply.addEventListener('click', () => applyWebrtcGuard(false));
+  els.webrtcTest.addEventListener('click', testWebrtcGuard);
+  els.webrtcDisable.addEventListener('click', () => applyWebrtcGuard(true));
+  [
+    els.uaApply,
+    els.uaReset,
+    els.charsetApply,
+    els.charsetReset
+  ].filter(Boolean).forEach((button) => {
+    button.addEventListener('click', () => {
+      const visibleStatus = [els.copyStatus, els.webrtcStatus, els.uaStatus, els.charsetStatus].find((item) => item && !item.closest('section')?.hidden);
+      if (visibleStatus) visibleStatus.textContent = 'UI 预览中，功能待接入';
+      setStatus('浏览器辅助功能正在进行 UI 设计，暂未执行实际修改');
+    });
+  });
   els.clear.addEventListener('click', clearAllRecords);
   els.repoLink.addEventListener('click', openProjectHome);
   els.topAuthorLink.addEventListener('click', openProjectHome);
@@ -232,10 +313,348 @@ function setActiveActionButton(activeButton) {
     els.securityScan,
     els.vulnScan,
     els.vueTools,
+    els.copyUnlock,
+    els.webrtcGuard,
+    els.uaSwitch,
+    els.charsetSwitch,
     els.clear
   ].forEach((button) => {
     if (button) button.classList.toggle('active', button === activeButton);
   });
+}
+
+function openAssistPanel(section) {
+  const buttonMap = {
+    copy: els.copyUnlock,
+    webrtc: els.webrtcGuard,
+    ua: els.uaSwitch,
+    charset: els.charsetSwitch
+  };
+  const panelMap = {
+    copy: els.copyPanel,
+    webrtc: els.webrtcPanel,
+    ua: els.uaPanel,
+    charset: els.charsetPanel
+  };
+  const statusMap = {
+    copy: els.copyStatus,
+    webrtc: els.webrtcStatus,
+    ua: els.uaStatus,
+    charset: els.charsetStatus
+  };
+  const labelMap = {
+    copy: '读取解除复制状态',
+    webrtc: '读取 WebRTC 防护状态',
+    ua: 'User-Agent 修改 UI 预览',
+    charset: '网站编码修改 UI 预览'
+  };
+  activeMainView = 'assist';
+  hideAssistPanels();
+  if (panelMap[section]) panelMap[section].hidden = false;
+  els.sniffPanel.hidden = true;
+  els.beianPanel.hidden = true;
+  setAssetListVisible(false);
+  setActiveActionButton(buttonMap[section] || null);
+  if (section === 'copy') {
+    loadCopyUnlockState().catch((err) => {
+      els.copyStatus.textContent = `读取状态失败: ${err.message}`;
+    });
+  }
+  if (statusMap[section]) statusMap[section].textContent = labelMap[section] || 'UI 预览';
+  setStatus(section === 'copy' ? '解除复制已接入，可对当前授权页面启用' : '浏览器辅助面板为 UI 预览，功能待确认后接入');
+}
+
+function hideAssistPanels() {
+  [els.copyPanel, els.webrtcPanel, els.uaPanel, els.charsetPanel].forEach((panel) => {
+    if (panel) panel.hidden = true;
+  });
+}
+
+function closeAssistPanels() {
+  hideAssistPanels();
+  setAssetListVisible(true);
+  setActiveActionButton(null);
+}
+
+function updateCopyUnlockUi(state = copyUnlockState) {
+  copyUnlockState = {
+    enabled: Boolean(state.enabled),
+    hostEnabled: Boolean(state.hostEnabled),
+    host: state.host || currentTabHost || '',
+    options: state.options || { aggressive: true }
+  };
+  els.copyUnlockState.textContent = copyUnlockState.enabled ? '已启用' : '未启用';
+  els.copyUnlockApply.textContent = copyUnlockState.enabled ? '重新应用解除复制' : '启用解除复制';
+  els.copyUnlockDisable.disabled = !copyUnlockState.enabled && !copyUnlockState.hostEnabled;
+  els.copyPersistHost.checked = copyUnlockState.hostEnabled;
+  els.copyAggressiveMode.checked = copyUnlockState.options.aggressive !== false;
+  els.copyStatus.textContent = copyUnlockState.host
+    ? `当前域名：${copyUnlockState.host}`
+    : '当前页面可尝试启用';
+}
+
+async function loadCopyUnlockState() {
+  const resp = await chrome.runtime.sendMessage({
+    type: 'GET_COPY_UNLOCK_STATE',
+    tabId: currentTabId
+  });
+  if (resp?.ok === false) throw new Error(resp.error || '读取失败');
+  updateCopyUnlockUi(resp || {});
+}
+
+function readCopyUnlockOptions() {
+  return {
+    aggressive: els.copyAggressiveMode.checked
+  };
+}
+
+async function applyCopyUnlock(enabled) {
+  if (!currentTabId) return;
+  const options = readCopyUnlockOptions();
+  const hostEnabled = enabled && els.copyPersistHost.checked;
+  els.copyStatus.textContent = enabled ? '正在注入解除复制能力...' : '正在关闭解除复制...';
+  els.copyUnlockApply.disabled = true;
+  els.copyUnlockDisable.disabled = true;
+  try {
+    const resp = await chrome.runtime.sendMessage({
+      type: 'SET_COPY_UNLOCK',
+      tabId: currentTabId,
+      enabled,
+      hostEnabled,
+      options
+    });
+    if (!resp) throw new Error('未收到后台响应，请在扩展管理页重新加载插件后再试');
+    if (resp?.ok === false) throw new Error(resp.error || '操作失败');
+    const result = {
+      ok: true,
+      enabled: Boolean(resp.enabled),
+      hostEnabled: Boolean(resp.hostEnabled),
+      host: resp.host || currentTabHost || '',
+      options: resp.options || options,
+      frames: Number(resp.frames || 0),
+      scanned: Number(resp.scanned || 0),
+      changed: Number(resp.changed || 0),
+      blockedListeners: Number(resp.blockedListeners || 0),
+      copiedFallbacks: Number(resp.copiedFallbacks || 0),
+      adapterHits: Number(resp.adapterHits || 0),
+      lastAdapter: resp.lastAdapter || ''
+    };
+    updateCopyUnlockUi(result);
+    if (enabled) {
+      els.copyStatus.textContent = `已启用 · ${result.frames} 个 frame · 处理 ${result.changed} 处限制 · 刷新后强效预加载`;
+      setStatus('已对当前页面启用解除复制');
+    } else {
+      els.copyStatus.textContent = '已关闭当前页面解除复制';
+      setStatus('已关闭当前页面解除复制');
+    }
+  } catch (err) {
+    els.copyStatus.textContent = `操作失败: ${err.message}`;
+    setStatus(`解除复制失败: ${err.message}`);
+  } finally {
+    els.copyUnlockApply.disabled = false;
+    els.copyUnlockDisable.disabled = !copyUnlockState.enabled && !copyUnlockState.hostEnabled;
+  }
+}
+
+function webrtcPolicyLabel(policy) {
+  const labels = {
+    default: '浏览器默认',
+    default_public_and_private_interfaces: '公共与私有接口',
+    default_public_interface_only: '仅公共接口',
+    disable_non_proxied_udp: '禁用非代理 UDP'
+  };
+  return labels[policy] || policy || '未知';
+}
+
+function updateWebrtcGuardUi(state = webrtcGuardState) {
+  const config = state.config || { policy: 'disable_non_proxied_udp', strongBlock: false };
+  webrtcGuardState = {
+    enabled: Boolean(state.enabled),
+    apiSupported: Boolean(state.apiSupported),
+    registered: Boolean(state.registered),
+    currentPolicy: state.currentPolicy || '',
+    config
+  };
+  els.webrtcPolicy.value = config.policy || 'disable_non_proxied_udp';
+  els.webrtcStrongBlock.checked = Boolean(config.strongBlock);
+  els.webrtcState.textContent = webrtcGuardState.enabled ? '已启用' : '未启用';
+  els.webrtcDisable.disabled = !webrtcGuardState.enabled;
+  els.webrtcApply.disabled = false;
+  if (!webrtcGuardState.apiSupported) {
+    els.webrtcStatus.textContent = config.strongBlock
+      ? '隐私策略 API 不可用，当前使用页面强阻断模式'
+      : '隐私策略 API 不可用，可勾选强阻断模式继续防护';
+    return;
+  }
+  const strongText = config.strongBlock ? '，强阻断已开启' : '';
+  els.webrtcStatus.textContent = `当前策略：${webrtcPolicyLabel(config.policy)}${strongText}`;
+}
+
+async function loadWebrtcGuardState() {
+  const resp = await chrome.runtime.sendMessage({ type: 'GET_WEBRTC_STATE' });
+  if (resp?.ok === false) throw new Error(resp.error || '读取失败');
+  updateWebrtcGuardUi(resp || {});
+}
+
+function readWebrtcGuardConfig(disable = false) {
+  if (disable) {
+    return {
+      policy: 'default',
+      strongBlock: false
+    };
+  }
+  return {
+    policy: els.webrtcPolicy.value || 'disable_non_proxied_udp',
+    strongBlock: Boolean(els.webrtcStrongBlock.checked)
+  };
+}
+
+async function applyWebrtcGuard(disable = false) {
+  if (!currentTabId) return;
+  const config = readWebrtcGuardConfig(disable);
+  els.webrtcApply.disabled = true;
+  els.webrtcDisable.disabled = true;
+  els.webrtcStatus.textContent = disable ? '正在关闭 WebRTC 防护...' : '正在应用 WebRTC 防泄漏策略...';
+  try {
+    const resp = await chrome.runtime.sendMessage({
+      type: 'SET_WEBRTC_GUARD',
+      tabId: currentTabId,
+      config
+    });
+    if (!resp) throw new Error('未收到后台响应，请重新加载插件后再试');
+    if (resp?.ok === false) throw new Error(resp.error || '操作失败');
+    updateWebrtcGuardUi({
+      enabled: Boolean(resp.enabled),
+      apiSupported: resp.apiSupported !== false,
+      registered: Boolean(resp.registered),
+      currentPolicy: resp.currentPolicy || config.policy,
+      config: resp.config || config
+    });
+    if (disable) {
+      els.webrtcStatus.textContent = '已关闭 WebRTC 防护，已打开的页面刷新后完全恢复';
+      setStatus('已关闭 WebRTC 防泄漏');
+    } else {
+      const frames = Number(resp.injectedFrames || 0);
+      const strongText = config.strongBlock ? `，当前页已处理 ${frames} 个 frame` : '';
+      els.webrtcStatus.textContent = `已应用：${webrtcPolicyLabel(config.policy)}${strongText}`;
+      setStatus('已应用 WebRTC 防泄漏策略');
+    }
+  } catch (err) {
+    els.webrtcStatus.textContent = `操作失败: ${err.message}`;
+    setStatus(`WebRTC 防泄漏失败: ${err.message}`);
+  } finally {
+    els.webrtcApply.disabled = false;
+    els.webrtcDisable.disabled = !webrtcGuardState.enabled;
+  }
+}
+
+async function testWebrtcGuard() {
+  if (!currentTabId) return;
+  els.webrtcTest.disabled = true;
+  els.webrtcStatus.textContent = '正在检测当前页面 WebRTC 暴露面...';
+  try {
+    const resp = await chrome.runtime.sendMessage({
+      type: 'TEST_WEBRTC_PAGE',
+      tabId: currentTabId
+    });
+    if (!resp) throw new Error('未收到后台响应');
+    if (resp?.ok === false) throw new Error(resp.error || '检测失败');
+    const frames = Number(resp.frames || 0);
+    const exposed = Number(resp.exposedCount || 0);
+    if (resp.protected) {
+      els.webrtcStatus.textContent = `检测完成：${frames} 个 frame 未发现 WebRTC 对象暴露`;
+      setStatus('WebRTC 当前页检测通过');
+    } else {
+      els.webrtcStatus.textContent = `检测完成：${frames} 个 frame 仍有 ${exposed} 项 WebRTC 对象暴露`;
+      setStatus('WebRTC 当前页仍有对象暴露，可开启强阻断后刷新页面');
+    }
+  } catch (err) {
+    els.webrtcStatus.textContent = `检测失败: ${err.message}`;
+    setStatus(`WebRTC 检测失败: ${err.message}`);
+  } finally {
+    els.webrtcTest.disabled = false;
+  }
+}
+
+async function copyCurrentSelectionFromPage() {
+  if (!currentTabId) return;
+  els.copyStatus.textContent = '正在读取当前页面选区...';
+  try {
+    const results = await chrome.scripting.executeScript({
+      target: { tabId: currentTabId, allFrames: true },
+      world: 'MAIN',
+      func: () => {
+        const adapterPayload = window.__AEGISSCOPE_COPY_UNLOCK__?.collect?.();
+        if (adapterPayload?.text || adapterPayload?.html) {
+          return {
+            text: adapterPayload.text || '',
+            html: adapterPayload.html || '',
+            adapter: adapterPayload.adapter || '专项适配',
+            href: location.href
+          };
+        }
+        const selection = window.getSelection?.();
+        if (!selection || selection.rangeCount < 1) return { text: '', html: '' };
+        const text = String(selection.toString() || '');
+        let html = '';
+        try {
+          const box = document.createElement('div');
+          for (let i = 0; i < selection.rangeCount; i += 1) {
+            box.appendChild(selection.getRangeAt(i).cloneContents());
+          }
+          html = box.innerHTML || '';
+        } catch {}
+        return { text, html, adapter: '通用选区', href: location.href };
+      }
+    });
+    const candidates = (results || [])
+      .map((item) => item?.result || {})
+      .filter((item) => item.text || item.html)
+      .sort((a, b) => String(b.text || b.html || '').length - String(a.text || a.html || '').length);
+    const best = candidates[0];
+    if (!best) {
+      els.copyStatus.textContent = '未读取到选中文本，请先在页面中选中内容';
+      setStatus('未读取到当前页面选区');
+      return;
+    }
+    const text = best.text || stripHtml(best.html || '');
+    await writeClipboardText(text);
+    els.copyStatus.textContent = `已复制当前选区 · ${text.length} 字符 · ${best.adapter || '通用选区'}`;
+    setStatus('已复制当前页面选区内容');
+  } catch (err) {
+    els.copyStatus.textContent = `复制选区失败: ${err.message}`;
+    setStatus(`复制选区失败: ${err.message}`);
+  }
+}
+
+function stripHtml(html) {
+  const box = document.createElement('div');
+  box.innerHTML = html || '';
+  return box.textContent || '';
+}
+
+async function writeClipboardText(text) {
+  const value = String(text || '');
+  try {
+    await navigator.clipboard.writeText(value);
+    return;
+  } catch (err) {
+    const textarea = document.createElement('textarea');
+    textarea.value = value;
+    textarea.setAttribute('readonly', '');
+    textarea.style.position = 'fixed';
+    textarea.style.left = '-9999px';
+    textarea.style.top = '-9999px';
+    document.body.appendChild(textarea);
+    textarea.focus();
+    textarea.select();
+    try {
+      const ok = document.execCommand('copy');
+      if (!ok) throw err;
+    } finally {
+      textarea.remove();
+    }
+  }
 }
 
 async function checkForUpdates(force = false) {
@@ -504,7 +923,7 @@ function isThirdParty(url) {
 
 async function copyText(text) {
   try {
-    await navigator.clipboard.writeText(text || '');
+    await writeClipboardText(text || '');
     setStatus('已复制');
   } catch (err) {
     setStatus(`复制失败: ${err.message}`);
@@ -1862,6 +2281,7 @@ async function openBeianQuery(options = {}) {
   if (options.active !== false) setActiveActionButton(els.beianQuery);
   els.beianPanel.hidden = false;
   els.sniffPanel.hidden = true;
+  hideAssistPanels();
   setAssetListVisible(false);
   els.beianStatus.textContent = '正在读取当前页面备案线索...';
   els.beianSummary.innerHTML = '';
@@ -2946,6 +3366,7 @@ async function openSiteSniff(options = {}) {
   if (options.active) setActiveActionButton(els.siteSniff);
   els.sniffPanel.hidden = false;
   els.beianPanel.hidden = true;
+  hideAssistPanels();
   setAssetListVisible(false);
   els.sniffStatus.textContent = '正在快速识别当前页面...';
   els.sniffSummary.innerHTML = '';

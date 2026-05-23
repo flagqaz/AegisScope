@@ -11,7 +11,7 @@
       <div class="mark" aria-hidden="true"><img src="icons/icon48.png" alt=""></div>
       <div class="title-copy">
         <h1>玄镜 AegisScope</h1>
-        <p>前端代码资产采集、网站嗅探、备案查询、指纹扫描与漏洞审计工作台</p>
+        <p>前端代码资产采集、网站嗅探、备案查询、浏览器辅助与漏洞审计工作台</p>
       </div>
       <div class="title-badges">
         <div class="title-links">
@@ -24,26 +24,174 @@
         </div>
         <div class="title-stats">
           <button id="versionBadge" class="version" title="检查更新">
-            <span>V2.1.5</span>
+            <span>V2.2.1</span>
             <i id="updateDot" class="update-dot" hidden></i>
           </button>
           <span id="count" class="badge">0</span>
         </div>
       </div>
     </div>
-    <div class="action-row">
-      <button id="refresh" title="重新采集并刷新当前插件页面数据">刷新全部</button>
-      <button id="downloadAll" title="保存代码资源或完整页面">保存</button>
-      <button id="siteSniff" title="网站技术栈、框架、CMS、库与响应头识别">网站嗅探</button>
-      <button id="beianQuery" title="当前页面备案号、公安备案号和备案链接查询">备案查询</button>
-      <button id="securityScan" title="对代码资源运行泄露扫描">泄露扫描</button>
-      <button id="vulnScan" title="源码审计与低风险接口漏扫">漏扫审计</button>
-      <button id="vueTools" title="Vue Router runtime tools">Vue 工具</button>
-      <button id="clear" class="danger" title="清空当前标签页插件记录">清空记录</button>
+    <div class="action-grid">
+      <div class="action-row primary-actions">
+        <button id="downloadAll" title="保存代码资源或完整页面">保存</button>
+        <button id="siteSniff" title="网站技术栈、框架、CMS、库与响应头识别">网站嗅探</button>
+        <button id="beianQuery" title="当前页面备案号、公安备案号和备案链接查询">备案查询</button>
+        <button id="securityScan" title="对代码资源运行泄露扫描">泄露扫描</button>
+        <button id="vulnScan" title="源码审计与低风险接口漏扫">漏扫审计</button>
+        <button id="vueTools" title="Vue Router runtime tools">Vue 工具</button>
+      </div>
+      <div class="action-row assist-actions">
+        <button id="refresh" title="重新采集并刷新当前插件页面数据">刷新全部</button>
+        <button id="copyUnlock" title="解除当前页面复制、选择、右键菜单限制">解除复制</button>
+        <button id="webrtcGuard" title="限制 WebRTC 直连 UDP，降低真实 IP 泄漏风险">WebRTC</button>
+        <button id="uaSwitch" title="为当前标签页修改请求 User-Agent">UA修改</button>
+        <button id="charsetSwitch" title="为当前标签页修改页面编码">编码修改</button>
+        <button id="clear" class="danger" title="清空当前标签页插件记录">清空记录</button>
+      </div>
     </div>
   </header>
 
   <main>
+    <section id="copyPanel" class="assist-panel" hidden>
+      <div class="assist-head">
+        <div>
+          <strong>解除复制</strong>
+          <span id="copyStatus">等待操作</span>
+        </div>
+        <button id="copyClose" title="关闭解除复制面板">关闭</button>
+      </div>
+      <section class="assist-card">
+        <div class="assist-card-head">
+          <span>当前页面</span>
+          <b id="copyUnlockState">未启用</b>
+        </div>
+        <p>解除当前页面的选择、复制、右键菜单、快捷键和粘贴拦截限制，仅在已授权页面使用。</p>
+        <label class="assist-check">
+          <input id="copyPersistHost" type="checkbox">
+          <span>对当前域名自动启用</span>
+        </label>
+        <label class="assist-check">
+          <input id="copyAggressiveMode" type="checkbox" checked>
+          <span>增强模式：处理动态节点、Shadow DOM 和鼠标拖拽拦截</span>
+        </label>
+        <div class="assist-inline-actions copy-actions">
+          <button id="copyUnlockApply" class="primary">启用解除复制</button>
+          <button id="copySelectionNow">复制当前选区</button>
+          <button id="copyUnlockDisable">关闭解除复制</button>
+        </div>
+      </section>
+    </section>
+
+    <section id="webrtcPanel" class="assist-panel" hidden>
+      <div class="assist-head">
+        <div>
+          <strong>WebRTC 防泄漏</strong>
+          <span id="webrtcStatus">等待操作</span>
+        </div>
+        <button id="webrtcClose" title="关闭 WebRTC 面板">关闭</button>
+      </div>
+      <section class="assist-card">
+        <div class="assist-card-head">
+          <span>网络隐私策略</span>
+          <b id="webrtcState">读取中</b>
+        </div>
+        <p>限制 WebRTC 暴露本机网络地址，降低真实 IP 泄漏风险。</p>
+        <select id="webrtcPolicy">
+          <option value="disable_non_proxied_udp">强保护：禁用非代理 UDP</option>
+          <option value="default_public_interface_only">平衡：仅公共接口</option>
+          <option value="default_public_and_private_interfaces">兼容：公共与私有接口</option>
+          <option value="default">关闭保护：浏览器默认</option>
+        </select>
+        <label class="assist-check">
+          <input id="webrtcStrongBlock" type="checkbox">
+          <span>强阻断页面 WebRTC 对象：禁用 PeerConnection、媒体设备枚举和 DataChannel</span>
+        </label>
+        <div class="assist-inline-actions webrtc-actions">
+          <button id="webrtcApply" class="primary">应用 WebRTC 策略</button>
+          <button id="webrtcTest">检测当前页</button>
+          <button id="webrtcDisable">关闭防护</button>
+        </div>
+      </section>
+    </section>
+
+    <section id="uaPanel" class="assist-panel" hidden>
+      <div class="assist-head">
+        <div>
+          <strong>User-Agent 修改</strong>
+          <span id="uaStatus">等待操作</span>
+        </div>
+        <button id="uaClose" title="关闭 User-Agent 修改面板">关闭</button>
+      </div>
+      <section class="assist-card assist-dev-card">
+        <div class="assist-card-head">
+          <span>当前功能</span>
+          <b id="uaState">开发中</b>
+        </div>
+        <p>功能正在开发中，后续版本会接入当前标签页 User-Agent 修改能力。</p>
+      </section>
+      <!-- UA 修改功能开发预留，后续开发时取消注释。
+      <section class="assist-card">
+        <div class="assist-card-head">
+          <span>当前标签页</span>
+          <b>未设置</b>
+        </div>
+        <p>仅对当前标签页修改请求 User-Agent，应用后刷新页面生效。</p>
+        <select id="uaPreset">
+          <option value="">选择常用 UA</option>
+          <option value="chrome_windows">Chrome / Windows</option>
+          <option value="edge_windows">Edge / Windows</option>
+          <option value="safari_ios">Safari / iPhone</option>
+          <option value="chrome_android">Chrome / Android</option>
+          <option value="custom">自定义</option>
+        </select>
+        <textarea id="uaValue" rows="3" placeholder="手动输入 User-Agent，留空可先选择常用 UA"></textarea>
+        <div class="assist-inline-actions">
+          <button id="uaApply">应用并刷新</button>
+          <button id="uaReset">恢复默认</button>
+        </div>
+      </section>
+      -->
+    </section>
+
+    <section id="charsetPanel" class="assist-panel" hidden>
+      <div class="assist-head">
+        <div>
+          <strong>网站编码修改</strong>
+          <span id="charsetStatus">等待操作</span>
+        </div>
+        <button id="charsetClose" title="关闭网站编码修改面板">关闭</button>
+      </div>
+      <section class="assist-card assist-dev-card">
+        <div class="assist-card-head">
+          <span>当前功能</span>
+          <b id="charsetState">开发中</b>
+        </div>
+        <p>功能正在开发中，后续版本会接入当前标签页页面编码修改能力。</p>
+      </section>
+      <!-- 网站编码修改功能开发预留，后续开发时取消注释。
+      <section class="assist-card">
+        <div class="assist-card-head">
+          <span>响应编码</span>
+          <b>未设置</b>
+        </div>
+        <p>为当前标签页重写主页面和常见文本资源编码，适合乱码页面临时修正。</p>
+        <select id="charsetValue">
+          <option value="UTF-8">UTF-8</option>
+          <option value="GB18030">GB18030</option>
+          <option value="GBK">GBK</option>
+          <option value="Big5">Big5</option>
+          <option value="Shift_JIS">Shift_JIS</option>
+          <option value="EUC-KR">EUC-KR</option>
+          <option value="ISO-8859-1">ISO-8859-1</option>
+          <option value="windows-1252">windows-1252</option>
+        </select>
+        <div class="assist-inline-actions">
+          <button id="charsetApply">应用并刷新</button>
+          <button id="charsetReset">恢复默认</button>
+        </div>
+      </section>
+      -->
+    </section>
     <section id="sniffPanel" class="sniff-panel" hidden>
       <div class="sniff-top-feature">
         <button id="fingerprintScan" class="sniff-feature-button" title="跳转到指纹扫描工作台">
@@ -116,7 +264,7 @@
       <div class="mark mini" aria-hidden="true"><img src="icons/icon48.png" alt=""></div>
       <div>
         <strong>玄镜 AegisScope 使用许可与免责声明</strong>
-        <span>V2.1.5</span>
+        <span>V2.2.1</span>
       </div>
     </div>
     <div class="terms-body">
@@ -166,7 +314,7 @@
     <div class="update-body">
       <div class="update-version-row">
         <span>当前版本</span>
-        <b id="currentVersionText">V2.1.5</b>
+        <b id="currentVersionText">V2.2.1</b>
       </div>
       <div class="update-version-row">
         <span>最新版本</span>
