@@ -368,6 +368,7 @@ main {
   accent-color: var(--accent-strong);
 }
 .assist-card select,
+.assist-card input[type="text"],
 .assist-card textarea {
   width: 100%;
   border: 1px solid rgba(97,222,255,0.20);
@@ -377,10 +378,15 @@ main {
   font: inherit;
   outline: none;
 }
-.assist-card select {
+.assist-card select,
+.assist-card input[type="text"] {
   min-height: 32px;
   padding: 5px 8px;
   margin-bottom: 8px;
+}
+.assist-card option {
+  background: #07111c;
+  color: #eaffff;
 }
 .assist-card textarea {
   resize: vertical;
@@ -390,6 +396,9 @@ main {
   font-family: var(--mono);
   font-size: 11px;
   line-height: 1.45;
+}
+.assist-card.ua-simple-card {
+  min-height: 500px;
 }
 .assist-inline-actions {
   display: grid;
@@ -402,8 +411,78 @@ main {
 .assist-inline-actions.webrtc-actions {
   grid-template-columns: repeat(3, minmax(0, 1fr));
 }
+.assist-inline-actions.ua-actions {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
 .assist-card button {
   width: 100%;
+}
+.ua-toolbar {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 0.9fr);
+  gap: 8px;
+  margin-bottom: 8px;
+}
+.ua-profile-list {
+  display: grid;
+  gap: 6px;
+  max-height: 190px;
+  overflow: auto;
+  margin-bottom: 8px;
+  padding-right: 2px;
+}
+.ua-profile-item {
+  display: grid;
+  grid-template-columns: 18px minmax(0, 1fr);
+  gap: 8px;
+  align-items: center;
+  padding: 8px;
+  border: 1px solid rgba(97,222,255,0.16);
+  border-radius: 7px;
+  background: rgba(2, 8, 15, 0.72);
+  cursor: pointer;
+}
+.ua-profile-item:hover,
+.ua-profile-item.active {
+  border-color: rgba(102,242,201,0.44);
+  background: rgba(102,242,201,0.09);
+}
+.ua-profile-item strong {
+  display: block;
+  font-size: 12px;
+  color: #e9fdff;
+}
+.ua-profile-item span {
+  display: block;
+  margin-top: 3px;
+  white-space: normal;
+  overflow-wrap: anywhere;
+  color: #8fb2c0;
+  font-family: var(--mono);
+  font-size: 10px;
+  line-height: 1.45;
+}
+.ua-facts {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+  margin-bottom: 8px;
+}
+.ua-facts label {
+  display: grid;
+  gap: 4px;
+  color: #9fc7d5;
+  font-size: 10px;
+}
+.ua-options {
+  margin: 0 0 8px;
+  color: #9fc7d5;
+  font-size: 11px;
+}
+.ua-options summary {
+  cursor: pointer;
+  margin-bottom: 8px;
+  color: #c8f8ff;
 }
 
 #list {

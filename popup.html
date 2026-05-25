@@ -117,40 +117,44 @@
     <section id="uaPanel" class="assist-panel" hidden>
       <div class="assist-head">
         <div>
-          <strong>User-Agent 修改</strong>
+          <strong>UA 修改</strong>
           <span id="uaStatus">等待操作</span>
         </div>
         <button id="uaClose" title="关闭 User-Agent 修改面板">关闭</button>
       </div>
-      <section class="assist-card assist-dev-card">
+      <section class="assist-card ua-simple-card">
         <div class="assist-card-head">
-          <span>当前功能</span>
-          <b id="uaState">开发中</b>
+          <span>当前状态</span>
+          <b id="uaState">未启用</b>
         </div>
-        <p>功能正在开发中，后续版本会接入当前标签页 User-Agent 修改能力。</p>
-      </section>
-      <!-- UA 修改功能开发预留，后续开发时取消注释。
-      <section class="assist-card">
-        <div class="assist-card-head">
-          <span>当前标签页</span>
-          <b>未设置</b>
+        <div class="ua-toolbar">
+          <select id="uaCategory"></select>
+          <select id="uaBrowser"></select>
         </div>
-        <p>仅对当前标签页修改请求 User-Agent，应用后刷新页面生效。</p>
-        <select id="uaPreset">
-          <option value="">选择常用 UA</option>
-          <option value="chrome_windows">Chrome / Windows</option>
-          <option value="edge_windows">Edge / Windows</option>
-          <option value="safari_ios">Safari / iPhone</option>
-          <option value="chrome_android">Chrome / Android</option>
-          <option value="custom">自定义</option>
-        </select>
-        <textarea id="uaValue" rows="3" placeholder="手动输入 User-Agent，留空可先选择常用 UA"></textarea>
-        <div class="assist-inline-actions">
-          <button id="uaApply">应用并刷新</button>
+        <div id="uaProfileList" class="ua-profile-list"></div>
+        <details class="ua-options">
+          <summary>自定义 UA / 高级选项</summary>
+          <textarea id="uaValue" rows="3" placeholder="选择上方 UA，或直接输入自定义 User-Agent"></textarea>
+          <div class="ua-facts">
+            <label>platform<input id="uaPlatformView" type="text" readonly></label>
+            <label>vendor<input id="uaVendorView" type="text" readonly></label>
+            <label>product<input id="uaProductView" type="text" readonly></label>
+          </div>
+          <label class="assist-check">
+            <input id="uaExposeData" type="checkbox">
+            <span>同步 Client Hints / navigator.userAgentData</span>
+          </label>
+          <textarea id="uaProtected" rows="3" placeholder="保护名单：包含这些关键字的页面不修改 UA，每行一个"></textarea>
+        </details>
+        <div class="assist-inline-actions ua-actions">
+          <button id="uaApplyTab" class="primary">当前标签</button>
+          <button id="uaApplyHost">当前域名</button>
+          <button id="uaApplyGlobal">全部页面</button>
           <button id="uaReset">恢复默认</button>
+          <button id="uaRefresh">刷新页面</button>
+          <button id="uaTest">检测 UA</button>
         </div>
       </section>
-      -->
     </section>
 
     <section id="charsetPanel" class="assist-panel" hidden>

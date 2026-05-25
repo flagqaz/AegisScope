@@ -70,11 +70,21 @@ const els = {
   uaStatus: document.getElementById('uaStatus'),
   uaClose: document.getElementById('uaClose'),
   uaState: document.getElementById('uaState'),
-  // UA 修改功能开发预留，具体控件在 popup.html 中暂时注释。
-  // uaPreset: document.getElementById('uaPreset'),
-  // uaValue: document.getElementById('uaValue'),
-  // uaApply: document.getElementById('uaApply'),
-  // uaReset: document.getElementById('uaReset'),
+  uaCategory: document.getElementById('uaCategory'),
+  uaBrowser: document.getElementById('uaBrowser'),
+  uaProfileList: document.getElementById('uaProfileList'),
+  uaValue: document.getElementById('uaValue'),
+  uaPlatformView: document.getElementById('uaPlatformView'),
+  uaVendorView: document.getElementById('uaVendorView'),
+  uaProductView: document.getElementById('uaProductView'),
+  uaExposeData: document.getElementById('uaExposeData'),
+  uaProtected: document.getElementById('uaProtected'),
+  uaApplyTab: document.getElementById('uaApplyTab'),
+  uaApplyHost: document.getElementById('uaApplyHost'),
+  uaApplyGlobal: document.getElementById('uaApplyGlobal'),
+  uaRefresh: document.getElementById('uaRefresh'),
+  uaReset: document.getElementById('uaReset'),
+  uaTest: document.getElementById('uaTest'),
   charsetPanel: document.getElementById('charsetPanel'),
   charsetStatus: document.getElementById('charsetStatus'),
   charsetClose: document.getElementById('charsetClose'),
@@ -117,6 +127,75 @@ let sniffState = { signals: null, findings: [] };
 let beianState = { signals: null, result: null };
 let copyUnlockState = { enabled: false, hostEnabled: false, host: '', options: { aggressive: true } };
 let webrtcGuardState = { enabled: false, config: { policy: 'default', strongBlock: false }, currentPolicy: '', apiSupported: false, registered: false };
+let uaSimpleState = { config: null, profiles: [], selectedId: '' };
+const UA_FALLBACK_PROFILES = [
+  ['chrome_windows', 'Chrome / Windows', 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36'],
+  ['chrome_windows_legacy', 'Chrome 109 / Windows', 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/109.0.0.0 Safari/537.36'],
+  ['chrome_mac', 'Chrome / macOS', 'Mozilla/5.0 (Macintosh; Intel Mac OS X 14_5) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36'],
+  ['chrome_linux', 'Chrome / Linux', 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36'],
+  ['edge_windows', 'Edge / Windows', 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36 Edg/125.0.0.0'],
+  ['edge_mac', 'Edge / macOS', 'Mozilla/5.0 (Macintosh; Intel Mac OS X 14_5) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36 Edg/125.0.0.0'],
+  ['edge_android', 'Edge / Android', 'Mozilla/5.0 (Linux; Android 14; Pixel 8 Pro) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Mobile Safari/537.36 EdgA/125.0.0.0'],
+  ['firefox_windows', 'Firefox / Windows', 'Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:126.0) Gecko/20100101 Firefox/126.0'],
+  ['firefox_mac', 'Firefox / macOS', 'Mozilla/5.0 (Macintosh; Intel Mac OS X 14.5; rv:126.0) Gecko/20100101 Firefox/126.0'],
+  ['firefox_linux', 'Firefox / Linux', 'Mozilla/5.0 (X11; Linux x86_64; rv:126.0) Gecko/20100101 Firefox/126.0'],
+  ['firefox_android', 'Firefox / Android', 'Mozilla/5.0 (Android 14; Mobile; rv:126.0) Gecko/126.0 Firefox/126.0'],
+  ['safari_mac', 'Safari / macOS', 'Mozilla/5.0 (Macintosh; Intel Mac OS X 14_5) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.5 Safari/605.1.15'],
+  ['safari_ios', 'Safari / iPhone', 'Mozilla/5.0 (iPhone; CPU iPhone OS 17_5 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.5 Mobile/15E148 Safari/604.1'],
+  ['safari_ipad', 'Safari / iPad', 'Mozilla/5.0 (iPad; CPU OS 17_5 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.5 Mobile/15E148 Safari/604.1'],
+  ['chrome_ios', 'Chrome / iPhone', 'Mozilla/5.0 (iPhone; CPU iPhone OS 17_5 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) CriOS/125.0.0.0 Mobile/15E148 Safari/604.1'],
+  ['edge_ios', 'Edge / iPhone', 'Mozilla/5.0 (iPhone; CPU iPhone OS 17_5 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) EdgiOS/125.0.0.0 Mobile/15E148 Safari/605.1.15'],
+  ['firefox_ios', 'Firefox / iPhone', 'Mozilla/5.0 (iPhone; CPU iPhone OS 17_5 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) FxiOS/126.0 Mobile/15E148 Safari/605.1.15'],
+  ['chrome_android', 'Chrome / Android', 'Mozilla/5.0 (Linux; Android 14; Pixel 8 Pro) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Mobile Safari/537.36'],
+  ['android_webview', 'Android WebView', 'Mozilla/5.0 (Linux; Android 14; Pixel 8 Pro Build/AP1A.240505.005) AppleWebKit/537.36 (KHTML, like Gecko) Version/4.0 Chrome/125.0.0.0 Mobile Safari/537.36'],
+  ['samsung_android', 'Samsung Internet / Android', 'Mozilla/5.0 (Linux; Android 14; SAMSUNG SM-S928B) AppleWebKit/537.36 (KHTML, like Gecko) SamsungBrowser/25.0 Chrome/121.0.0.0 Mobile Safari/537.36'],
+  ['opera_windows', 'Opera / Windows', 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36 OPR/110.0.0.0'],
+  ['opera_android', 'Opera / Android', 'Mozilla/5.0 (Linux; Android 14; Pixel 8 Pro) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Mobile Safari/537.36 OPR/82.0.0.0'],
+  ['uc_android', 'UC Browser / Android', 'Mozilla/5.0 (Linux; U; Android 14; zh-CN; Pixel 8 Pro) AppleWebKit/537.36 (KHTML, like Gecko) Version/4.0 UCBrowser/15.0.0.0 Mobile Safari/537.36'],
+  ['qq_android', 'QQ Browser / Android', 'Mozilla/5.0 (Linux; Android 14; Pixel 8 Pro) AppleWebKit/537.36 (KHTML, like Gecko) Version/4.0 Chrome/125.0.0.0 MQQBrowser/14.0 Mobile Safari/537.36'],
+  ['quark_android', 'Quark / Android', 'Mozilla/5.0 (Linux; U; Android 14; zh-CN; Pixel 8 Pro) AppleWebKit/537.36 (KHTML, like Gecko) Version/4.0 Quark/7.0.0.0 Mobile Safari/537.36'],
+  ['wechat_windows', 'WeChat / Windows Link', 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36 NetType/WIFI MicroMessenger/7.0.20.1781(0x6700143B) WindowsWechat(0x63090b19) XWEB/11581 Flue'],
+  ['wechat_windows_miniprogram', 'WeChat MiniProgram / Windows', 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36 MicroMessenger/7.0.20.1781(0x6700143B) NetType/WIFI MiniProgramEnv/Windows WindowsWechat/WMPF WindowsWechat(0x63090551) XWEB/11581'],
+  ['wechat_mac', 'WeChat / macOS', 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/107.0.0.0 Safari/537.36 NetType/WIFI MicroMessenger/6.8.0(0x16080000) MacWechat/3.8.9(0x13080911) XWEB/1227 Flue'],
+  ['wechat_ios', 'WeChat / iPhone', 'Mozilla/5.0 (iPhone; CPU iPhone OS 18_6 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Mobile/15E148 MicroMessenger/8.0.62(0x18003e3a) NetType/WIFI Language/zh_CN'],
+  ['wechat_ipad', 'WeChat / iPad', 'Mozilla/5.0 (iPad; CPU OS 17_5 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Mobile/15E148 MicroMessenger/8.0.58(0x18003a35) NetType/WIFI Language/zh_CN'],
+  ['wechat_android', 'WeChat XWeb / Android', 'Mozilla/5.0 (Linux; Android 14; M2102K1C Build/UKQ1.240624.001; wv) AppleWebKit/537.36 (KHTML, like Gecko) Version/4.0 Chrome/134.0.6998.136 Mobile Safari/537.36 XWEB/1340059 MMWEBSDK/20250201 MMWEBID/6946 MicroMessenger/8.0.58.2841(0x28003A35) WeChat/arm64 Weixin NetType/WIFI Language/zh_CN ABI/arm64'],
+  ['wechat_android_xweb', 'WeChat XWeb / Android 12', 'Mozilla/5.0 (Linux; Android 12; FOA-AL00 Build/HUAWEIFOA-AL00; wv) AppleWebKit/537.36 (KHTML, like Gecko) Version/4.0 Chrome/126.0.6478.188 Mobile Safari/537.36 XWEB/1260117 MMWEBSDK/20240801 MMWEBID/4272 MicroMessenger/8.0.51.2720(0x28003339) WeChat/arm64 Weixin NetType/4G Language/zh_CN ABI/arm64'],
+  ['wechat_android_miniprogram', 'WeChat MiniProgram / Android', 'Mozilla/5.0 (Linux; Android 11; IN2023 Build/RP1A.201005.001; wv) AppleWebKit/537.36 (KHTML, like Gecko) Version/4.0 Chrome/78.0.3904.62 XWEB/2693 MMWEBSDK/201101 Mobile Safari/537.36 MMWEBID/8064 MicroMessenger/7.0.21.1783(0x27001543) Process/appbrand0 NetType/WIFI Language/zh_CN ABI/arm64 WeChat/arm64 miniProgram'],
+  ['alipay_android', 'Alipay / Android', 'Mozilla/5.0 (Linux; U; Android 14; zh-CN; Pixel 8 Pro) AppleWebKit/537.36 (KHTML, like Gecko) Version/4.0 Chrome/125.0.0.0 Mobile Safari/537.36 AlipayClient/10.5.0'],
+  ['alipay_android_nebula', 'Alipay Nebula / Android', 'Mozilla/5.0 (Linux; U; Android 9; zh-CN; MRD-AL00 Build/HUAWEIMRD-AL00) AppleWebKit/537.36 (KHTML, like Gecko) Version/4.0 Chrome/69.0.3497.100 UWS/3.22.2.66 Mobile Safari/537.36 UCBS/3.22.2.66_230817192015 NebulaSDK/1.8.100112 Nebula AlipayDefined(nt:WIFI,ws:320|0|2.25) AliApp(AP/10.5.78.8000) AlipayClient/10.5.78.8000 Language/zh-Hans useStatusBar/true isConcaveScreen/true Region/CNAriver/1.0.0 DTN/2.0'],
+  ['alipay_ios', 'Alipay / iPhone', 'Mozilla/5.0 (iPhone; CPU iPhone OS 17_5 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Mobile/15E148 Ariver/1.1.0 AliApp(AP/10.6.80.6000) Nebula WK RVKType(0) AlipayDefined(nt:WIFI,ws:393|788|3.0) AlipayClient/10.6.80.6000 Alipay Language/zh-Hans Region/CN NebulaX/1.0.0 DTN/2.0'],
+  ['alipay_ipad', 'Alipay / iPad', 'Mozilla/5.0 (iPad; CPU OS 17_5 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Mobile/15E148 Ariver/1.1.0 AliApp(AP/10.6.80.6000) Nebula WK RVKType(0) AlipayDefined(nt:WIFI,ws:820|1180|2.0) AlipayClient/10.6.80.6000 Alipay Language/zh-Hans Region/CN NebulaX/1.0.0 DTN/2.0'],
+  ['alipay_windows_debug', 'Alipay Debug / Windows', 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36 AliApp(AP/10.6.80.6000) AlipayClient/10.6.80.6000 Alipay Language/zh-Hans Region/CN'],
+  ['alipay_mac_debug', 'Alipay Debug / macOS', 'Mozilla/5.0 (Macintosh; Intel Mac OS X 14_5) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36 AliApp(AP/10.6.80.6000) AlipayClient/10.6.80.6000 Alipay Language/zh-Hans Region/CN'],
+  ['dingtalk_android', 'DingTalk / Android', 'Mozilla/5.0 (Linux; Android 14; Pixel 8 Pro) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Mobile Safari/537.36 DingTalk/7.6.0'],
+  ['dingtalk_windows', 'DingTalk / Windows', 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36 DingTalk/7.6.0'],
+  ['feishu_android', 'Feishu / Android', 'Mozilla/5.0 (Linux; Android 14; Pixel 8 Pro) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Mobile Safari/537.36 Lark/7.20.0'],
+  ['feishu_windows', 'Feishu / Windows', 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36 Lark/7.20.0'],
+  ['taobao_android', 'Taobao / Android', 'Mozilla/5.0 (Linux; U; Android 15; zh-CN; V2307A Build/AP3A.240905.015.A1) AppleWebKit/537.36 (KHTML, like Gecko) Version/4.0 Chrome/100.0.4896.58 UWS/5.12.9.0 Mobile Safari/537.36 AliApp(TB/10.46.10) UCBS/2.11.1.1 WindVane/8.5.0'],
+  ['weibo_ios', 'Weibo / iPhone', 'Mozilla/5.0 (iPhone; CPU iPhone OS 17_5 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Mobile/15E148 Weibo'],
+  ['baiduspider', 'Baidu Spider', 'Mozilla/5.0 (compatible; Baiduspider/2.0; +http://www.baidu.com/search/spider.html)'],
+  ['googlebot', 'Googlebot', 'Mozilla/5.0 (compatible; Googlebot/2.1; +http://www.google.com/bot.html)'],
+  ['bingbot', 'Bingbot', 'Mozilla/5.0 (compatible; bingbot/2.0; +http://www.bing.com/bingbot.htm)'],
+  ['sogou_spider', 'Sogou Spider', 'Sogou web spider/4.0(+http://www.sogou.com/docs/help/webmasters.htm#07)'],
+  ['360_spider', '360 Spider', 'Mozilla/5.0 (compatible; 360Spider; +http://www.so.com/help/help_3_2.html)'],
+  ['chrome_windows_latest', 'Chrome 126 / Windows', 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36'],
+  ['chrome_windows_old_80', 'Chrome 80 / Windows', 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/80.0.3987.149 Safari/537.36'],
+  ['ie11_windows', 'IE 11 / Windows', 'Mozilla/5.0 (Windows NT 10.0; Trident/7.0; rv:11.0) like Gecko'],
+  ['edge_legacy_windows', 'Edge Legacy / Windows', 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/42.0.2311.135 Safari/537.36 Edge/12.246'],
+  ['iphone_15_safari', 'Safari / iPhone 15', 'Mozilla/5.0 (iPhone; CPU iPhone OS 17_5 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.5 Mobile/15E148 Safari/604.1'],
+  ['huawei_android', 'Huawei Browser / Android', 'Mozilla/5.0 (Linux; Android 14; HUAWEI ALN-AL00) AppleWebKit/537.36 (KHTML, like Gecko) Version/4.0 Chrome/125.0.0.0 Mobile Safari/537.36 HuaweiBrowser/15.0.0.0'],
+  ['xiaomi_android', 'Mi Browser / Android', 'Mozilla/5.0 (Linux; U; Android 14; zh-CN; 23127PN0CC) AppleWebKit/537.36 (KHTML, like Gecko) Version/4.0 Chrome/125.0.0.0 Mobile Safari/537.36 XiaoMi/MiuiBrowser/18.0.0'],
+  ['vivo_android', 'vivo Browser / Android', 'Mozilla/5.0 (Linux; Android 14; V2304A) AppleWebKit/537.36 (KHTML, like Gecko) Version/4.0 Chrome/125.0.0.0 Mobile Safari/537.36 VivoBrowser/19.0.0.0'],
+  ['oppo_android', 'OPPO Browser / Android', 'Mozilla/5.0 (Linux; Android 14; PHZ110) AppleWebKit/537.36 (KHTML, like Gecko) Version/4.0 Chrome/125.0.0.0 Mobile Safari/537.36 HeyTapBrowser/45.0.0.0'],
+  ['baidu_android', 'Baidu App / Android', 'Mozilla/5.0 (Linux; Android 14; Pixel 8 Pro) AppleWebKit/537.36 (KHTML, like Gecko) Version/4.0 Chrome/125.0.0.0 Mobile Safari/537.36 baiduboxapp/13.60.0.10'],
+  ['baidu_ios', 'Baidu App / iPhone', 'Mozilla/5.0 (iPhone; CPU iPhone OS 17_5 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Mobile/15E148 baiduboxapp/13.60.0.10'],
+  ['toutiao_android', 'Toutiao / Android', 'Mozilla/5.0 (Linux; Android 14; Pixel 8 Pro) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Mobile Safari/537.36 NewsArticle/9.8.0'],
+  ['douyin_android', 'Douyin / Android', 'Mozilla/5.0 (Linux; Android 14; Pixel 8 Pro) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Mobile Safari/537.36 aweme_280000'],
+  ['googlebot_mobile', 'Googlebot Smartphone', 'Mozilla/5.0 (Linux; Android 14; Pixel 8 Pro) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Mobile Safari/537.36 (compatible; Googlebot/2.1; +http://www.google.com/bot.html)'],
+  ['bingbot_mobile', 'Bingbot Mobile', 'Mozilla/5.0 (Linux; Android 14; Pixel 8 Pro) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Mobile Safari/537.36 (compatible; bingbot/2.0; +http://www.bing.com/bingbot.htm)'],
+  ['yandexbot', 'YandexBot', 'Mozilla/5.0 (compatible; YandexBot/3.0; +http://yandex.com/bots)']
+].map(([id, name, ua]) => ({ id, name, ua }));
 let updateState = {
   checked: false,
   hasUpdate: false,
@@ -257,13 +336,18 @@ async function init() {
   });
   els.uaSwitch.addEventListener('click', () => {
     openAssistPanel('ua');
-    els.uaStatus.textContent = '功能正在开发中';
-    setStatus('UA 修改功能正在开发中');
+    els.uaStatus.textContent = '正在读取 UA 配置...';
+    setStatus('UA 修改模块已打开');
   });
   els.charsetSwitch.addEventListener('click', () => {
     openAssistPanel('charset');
     els.charsetStatus.textContent = '功能正在开发中';
     setStatus('网站编码修改功能正在开发中');
+  });
+  els.uaSwitch.addEventListener('click', () => {
+    loadUaSimple().catch((err) => {
+      loadUaFallbackProfiles(err.message || '读取失败');
+    });
   });
   els.copyClose.addEventListener('click', closeAssistPanels);
   els.webrtcClose.addEventListener('click', closeAssistPanels);
@@ -275,9 +359,22 @@ async function init() {
   els.webrtcApply.addEventListener('click', () => applyWebrtcGuard(false));
   els.webrtcTest.addEventListener('click', testWebrtcGuard);
   els.webrtcDisable.addEventListener('click', () => applyWebrtcGuard(true));
+  els.uaCategory.addEventListener('change', () => {
+    renderUaBrowserSelect();
+    selectUaProfile(els.uaBrowser.value, false);
+  });
+  els.uaBrowser.addEventListener('change', () => {
+    uaSimpleState.selectedId = els.uaBrowser.value;
+    selectUaProfile(els.uaBrowser.value, true);
+  });
+  els.uaValue.addEventListener('input', updateUaFacts);
+  els.uaApplyTab.addEventListener('click', () => applyUaSimple('tab'));
+  els.uaApplyHost.addEventListener('click', () => applyUaSimple('host'));
+  els.uaApplyGlobal.addEventListener('click', () => applyUaSimple('global'));
+  els.uaRefresh.addEventListener('click', () => currentTabId && chrome.tabs.reload(currentTabId, { bypassCache: true }));
+  els.uaReset.addEventListener('click', resetUaSimple);
+  els.uaTest.addEventListener('click', testUaSimple);
   [
-    els.uaApply,
-    els.uaReset,
     els.charsetApply,
     els.charsetReset
   ].filter(Boolean).forEach((button) => {
@@ -574,6 +671,246 @@ async function testWebrtcGuard() {
   } finally {
     els.webrtcTest.disabled = false;
   }
+}
+
+function splitUaProtected(value) {
+  return String(value || '').split(/\n+/).map((item) => item.trim()).filter(Boolean);
+}
+
+function uaCategoryOptions() {
+  return [
+    { id: 'desktop', label: '桌面浏览器' },
+    { id: 'mobile', label: '移动浏览器' },
+    { id: 'app', label: 'App / 桌面客户端' },
+    { id: 'bot', label: '搜索爬虫' },
+    { id: 'legacy', label: '兼容旧版' }
+  ];
+}
+
+function uaCategoryOf(profile) {
+  const id = String(profile?.id || '').toLowerCase();
+  const name = String(profile?.name || '').toLowerCase();
+  const text = `${id} ${name}`;
+  if (/(bot|spider|yandex)/.test(text)) return 'bot';
+  if (/(legacy|old|ie11|chrome_109|chrome 109|chrome_80|chrome 80)/.test(text)) return 'legacy';
+  if (/(wechat|alipay|dingtalk|feishu|weibo|baidu app|baidu_|toutiao|douyin)/.test(text)) return 'app';
+  if (/(android|iphone|ipad|ios|mobile|webview|samsung|uc_|qq_|quark|huawei|xiaomi|vivo|oppo)/.test(text)) return 'mobile';
+  return 'desktop';
+}
+
+function uaProfilesByCategory(category) {
+  return (uaSimpleState.profiles || []).filter((profile) => uaCategoryOf(profile) === category);
+}
+
+function renderUaCategorySelect(currentId) {
+  const currentProfile = (uaSimpleState.profiles || []).find((profile) => profile.id === currentId) || uaSimpleState.profiles?.[0];
+  const currentCategory = els.uaCategory.value || uaCategoryOf(currentProfile);
+  els.uaCategory.textContent = '';
+  for (const item of uaCategoryOptions()) {
+    const option = document.createElement('option');
+    option.value = item.id;
+    option.textContent = item.label;
+    els.uaCategory.appendChild(option);
+  }
+  els.uaCategory.value = uaProfilesByCategory(currentCategory).length ? currentCategory : uaCategoryOf(currentProfile);
+}
+
+function loadUaFallbackProfiles(reason = '') {
+  uaSimpleState = {
+    config: {
+      enabled: false,
+      mode: 'tab',
+      profileId: 'chrome_windows',
+      ua: '',
+      exposeUserAgentData: true,
+      protectedKeywords: []
+    },
+    profiles: UA_FALLBACK_PROFILES,
+    selectedId: 'chrome_windows'
+  };
+  renderUaBrowserSelect();
+  selectUaProfile(uaSimpleState.selectedId);
+  els.uaExposeData.checked = true;
+  els.uaProtected.value = '';
+  els.uaState.textContent = '未启用';
+  els.uaStatus.textContent = reason
+    ? `后台未响应，已显示本地 UA 列表：${reason}`
+    : '已显示本地 UA 列表';
+}
+
+function uaProfileGroups(profiles) {
+  const groups = new Map();
+  for (const profile of profiles || []) {
+    const key = (profile.name || profile.id || 'Other').split('/')[0].trim();
+    if (!groups.has(key)) groups.set(key, []);
+    groups.get(key).push(profile);
+  }
+  return groups;
+}
+
+function renderUaBrowserSelect() {
+  const current = els.uaBrowser.value || uaSimpleState.selectedId;
+  renderUaCategorySelect(current);
+  const profiles = uaProfilesByCategory(els.uaCategory.value);
+  els.uaBrowser.textContent = '';
+  for (const profile of profiles) {
+    const option = document.createElement('option');
+    option.value = profile.id;
+    option.textContent = profile.name;
+    els.uaBrowser.appendChild(option);
+  }
+  els.uaBrowser.value = current && profiles.some((item) => item.id === current)
+    ? current
+    : (profiles[0]?.id || '');
+}
+
+function renderUaProfiles() {
+  const sourceProfiles = uaSimpleState.profiles || [];
+  const profiles = sourceProfiles.filter((profile) => profile.id === uaSimpleState.selectedId).slice(0, 1);
+  els.uaProfileList.textContent = '';
+  if (!profiles.length) {
+    const empty = document.createElement('div');
+    empty.className = 'ua-rule-empty';
+    empty.textContent = '请先选择一个 UA';
+    els.uaProfileList.appendChild(empty);
+    return;
+  }
+  for (const profile of profiles) {
+    const row = document.createElement('label');
+    row.className = `ua-profile-item ${profile.id === uaSimpleState.selectedId ? 'active' : ''}`;
+    row.innerHTML = `<input type="radio" name="uaProfile"${profile.id === uaSimpleState.selectedId ? ' checked' : ''}><div><strong>${uaEscapeHtml(profile.name)}</strong><span>${uaEscapeHtml(profile.ua)}</span></div>`;
+    row.title = profile.ua;
+    row.addEventListener('click', () => selectUaProfile(profile.id, true));
+    els.uaProfileList.appendChild(row);
+  }
+}
+
+function selectUaProfile(id, clearFilter = false) {
+  const profile = uaSimpleState.profiles.find((item) => item.id === id) || uaSimpleState.profiles[0];
+  if (!profile) return;
+  uaSimpleState.selectedId = profile.id;
+  if (clearFilter) {
+    els.uaCategory.value = uaCategoryOf(profile);
+    renderUaBrowserSelect();
+  }
+  els.uaBrowser.value = profile.id;
+  els.uaValue.value = profile.ua;
+  els.uaStatus.textContent = `已选择：${profile.name}`;
+  renderUaProfiles();
+  updateUaFacts();
+}
+
+function parseUaFacts(ua) {
+  const firefox = /Firefox\//i.test(ua);
+  const safari = /Version\/[\d.]+.*Safari\//i.test(ua) && !/Chrome|Chromium|CriOS|Edg|OPR\//i.test(ua);
+  let platform = 'Win32';
+  if (/Macintosh|Mac OS X/i.test(ua) && !/iPhone|iPad|iPod/i.test(ua)) platform = 'MacIntel';
+  else if (/iPhone/i.test(ua)) platform = 'iPhone';
+  else if (/iPad/i.test(ua)) platform = 'iPad';
+  else if (/Android/i.test(ua)) platform = 'Linux armv8l';
+  else if (/Linux/i.test(ua)) platform = 'Linux x86_64';
+  return {
+    platform,
+    vendor: safari ? 'Apple Computer, Inc.' : firefox ? '' : 'Google Inc.',
+    product: ua.includes('Gecko') ? 'Gecko' : ''
+  };
+}
+
+function updateUaFacts() {
+  const facts = parseUaFacts(els.uaValue.value || '');
+  els.uaPlatformView.value = facts.platform;
+  els.uaVendorView.value = facts.vendor;
+  els.uaProductView.value = facts.product;
+}
+
+function currentUaConfig(mode = uaSimpleState.config?.mode || 'tab') {
+  return {
+    ...(uaSimpleState.config || {}),
+    enabled: true,
+    mode,
+    tabId: currentTabId,
+    host: currentTabHost,
+    profileId: uaSimpleState.selectedId || els.uaBrowser.value || 'chrome_windows',
+    ua: els.uaValue.value.trim(),
+    exposeUserAgentData: Boolean(els.uaExposeData.checked),
+    protectedKeywords: splitUaProtected(els.uaProtected.value)
+  };
+}
+
+async function loadUaSimple() {
+  els.uaStatus.textContent = '正在读取 UA 配置...';
+  const resp = await chrome.runtime.sendMessage({ type: 'GET_UA_STATE', tabId: currentTabId });
+  if (!resp || resp.ok === false) throw new Error(resp?.error || '读取失败');
+  uaSimpleState = {
+    config: resp.config,
+    profiles: resp.profiles || [],
+    selectedId: resp.config?.profileId || 'chrome_windows'
+  };
+  renderUaBrowserSelect();
+  selectUaProfile(uaSimpleState.selectedId);
+  if (resp.config?.ua) els.uaValue.value = resp.config.ua;
+  els.uaExposeData.checked = resp.config?.exposeUserAgentData !== false;
+  els.uaProtected.value = (resp.config?.protectedKeywords || []).join('\n');
+  els.uaState.textContent = resp.config?.enabled ? '已启用' : '未启用';
+  els.uaStatus.textContent = resp.config?.enabled ? `当前模式：${resp.config.mode}` : '选择 UA 后点击应用';
+  updateUaFacts();
+}
+
+async function applyUaSimple(mode) {
+  const config = currentUaConfig(mode);
+  els.uaStatus.textContent = '正在应用 UA...';
+  const resp = await chrome.runtime.sendMessage({
+    type: 'SET_UA_STATE',
+    tabId: currentTabId,
+    config,
+    reload: true
+  });
+  if (!resp || resp.ok === false) {
+    els.uaStatus.textContent = `应用失败: ${resp?.error || '未收到后台响应'}`;
+    return;
+  }
+  uaSimpleState.config = resp.config;
+  els.uaState.textContent = '已启用';
+  els.uaStatus.textContent = `已应用：${mode === 'tab' ? '当前标签页' : mode === 'host' ? '当前域名' : '全部页面'}`;
+  setStatus('UA 修改已应用');
+}
+
+async function resetUaSimple() {
+  els.uaStatus.textContent = '正在恢复默认 UA...';
+  const resp = await chrome.runtime.sendMessage({ type: 'RESET_UA_STATE', tabId: currentTabId });
+  if (!resp || resp.ok === false) {
+    els.uaStatus.textContent = `恢复失败: ${resp?.error || '未收到后台响应'}`;
+    return;
+  }
+  uaSimpleState.config = resp.config;
+  els.uaState.textContent = '未启用';
+  els.uaStatus.textContent = '已恢复默认，刷新页面后完全生效';
+  setStatus('UA 修改已恢复默认');
+}
+
+async function testUaSimple() {
+  els.uaStatus.textContent = '正在检测当前页 UA...';
+  try {
+    const [result] = await chrome.scripting.executeScript({
+      target: { tabId: currentTabId },
+      world: 'MAIN',
+      func: () => navigator.userAgent
+    });
+    const ua = result?.result || '';
+    els.uaStatus.textContent = ua ? `页面主环境 UA: ${ua.slice(0, 100)}${ua.length > 100 ? '...' : ''}` : '未读取到 UA';
+  } catch (err) {
+    els.uaStatus.textContent = `检测失败: ${err.message}`;
+  }
+}
+
+function uaEscapeHtml(value) {
+  return String(value ?? '').replace(/[&<>"']/g, (char) => ({
+    '&': '&amp;',
+    '<': '&lt;',
+    '>': '&gt;',
+    '"': '&quot;',
+    "'": '&#39;'
+  }[char]));
 }
 
 async function copyCurrentSelectionFromPage() {
@@ -2297,7 +2634,18 @@ async function openBeianQuery(options = {}) {
     els.beianDomain.value = result.queryDomain || '';
     renderBeianResults();
     els.beianStatus.textContent = '正在查询免费备案接口...';
-    const apiResults = await queryFreeBeianApis(result.queryDomain, { bypassCache: options.bypassCache });
+    const pageResult = result;
+    const apiResults = await queryFreeBeianApis(result.queryDomain, {
+      bypassCache: options.bypassCache,
+      onUpdate: (partialResults, meta = {}) => {
+        const partial = mergeBeianApiResults(pageResult, partialResults);
+        beianState = { signals, result: partial };
+        renderBeianResults();
+        els.beianStatus.textContent = meta.done
+          ? '接口查询完成，正在汇总备案结果...'
+          : `接口查询中：已返回 ${meta.count || partialResults.length}/${meta.total || partialResults.length}`;
+      }
+    });
     result = mergeBeianApiResults(result, apiResults);
     beianState = { signals, result };
     renderBeianResults();
@@ -2470,31 +2818,49 @@ async function queryFreeBeianApis(domain, options = {}) {
     {
       name: 'UAPI',
       url: `https://uapis.cn/api/v1/network/icp?domain=${encodeURIComponent(query)}`,
-      method: 'GET'
+      method: 'GET',
+      timeout: 10000
     },
     {
       name: '远梦API',
       url: `http://api.mmp.cc/api/icp?domain=${encodeURIComponent(query)}`,
-      method: 'GET'
+      method: 'GET',
+      timeout: 10000
     },
     {
       name: '创信API',
       url: `https://apis.jxcxin.cn/api/icp?name=${encodeURIComponent(query)}&type=1`,
-      method: 'GET'
+      method: 'GET',
+      timeout: 10000
     },
     {
       name: '接口盒子',
       url: `https://cn.apihz.cn/api/wangzhan/icp.php?id=88888888&key=88888888&domain=${encodeURIComponent(query)}`,
-      method: 'GET'
+      method: 'GET',
+      timeout: 10000
     },
     {
       name: '小尘API',
       url: `https://api.xcvts.cn/api/icp/2?url=${encodeURIComponent(query)}`,
       method: 'GET',
-      timeout: 25000
+      timeout: 10000
     }
   ];
-  const results = await Promise.all(apis.map((api) => queryBeianApi(api, query)));
+  const partialResults = new Array(apis.length);
+  let settledCount = 0;
+  const tasks = apis.map((api, index) => queryBeianApi(api, query).then((result) => {
+    partialResults[index] = result;
+    settledCount += 1;
+    if (typeof options.onUpdate === 'function') {
+      const ready = partialResults.filter(Boolean);
+      options.onUpdate(ready, { count: settledCount, total: apis.length, done: false });
+    }
+    return result;
+  }));
+  const results = await Promise.all(tasks);
+  if (typeof options.onUpdate === 'function') {
+    options.onUpdate(results, { count: apis.length, total: apis.length, done: true });
+  }
   beianApiCache.set(query, { time: Date.now(), results });
   await setPersistedBeianApiCache(query, results);
   if (beianApiCache.size > 20) beianApiCache.delete(beianApiCache.keys().next().value);
@@ -3021,7 +3387,17 @@ async function analyzeBeianFromInput() {
   els.beianDomain.value = beianState.result.queryDomain || '';
   renderBeianResults();
   els.beianStatus.textContent = '正在查询免费备案接口...';
-  const apiResults = await queryFreeBeianApis(result.queryDomain);
+  const pageResult = result;
+  const apiResults = await queryFreeBeianApis(result.queryDomain, {
+    onUpdate: (partialResults, meta = {}) => {
+      const partial = mergeBeianApiResults(pageResult, partialResults);
+      beianState = { signals, result: partial };
+      renderBeianResults();
+      els.beianStatus.textContent = meta.done
+        ? '接口查询完成，正在汇总备案结果...'
+        : `接口查询中：已返回 ${meta.count || partialResults.length}/${meta.total || partialResults.length}`;
+    }
+  });
   result = mergeBeianApiResults(result, apiResults);
   beianState = { signals, result };
   renderBeianResults();
