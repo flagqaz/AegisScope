@@ -126,8 +126,10 @@ let activeMainView = 'sniff';
 let sniffState = { signals: null, findings: [] };
 let beianState = { signals: null, result: null };
 let copyUnlockState = { enabled: false, hostEnabled: false, host: '', options: { aggressive: true } };
-let webrtcGuardState = { enabled: false, config: { policy: 'default', strongBlock: false }, currentPolicy: '', apiSupported: false, registered: false };
+let webrtcGuardState = { enabled: false, config: { policy: 'disable_non_proxied_udp', strongBlock: false }, currentPolicy: '', apiSupported: false, registered: false };
 let uaSimpleState = { config: null, profiles: [], selectedId: '' };
+let sniffExtendedRulesLoadPromise = null;
+ensureSniffExtendedRulesLoaded();
 const UA_FALLBACK_PROFILES = [
   ['chrome_windows', 'Chrome / Windows', 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36'],
   ['chrome_windows_legacy', 'Chrome 109 / Windows', 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/109.0.0.0 Safari/537.36'],
@@ -338,16 +340,14 @@ async function init() {
     openAssistPanel('ua');
     els.uaStatus.textContent = '正在读取 UA 配置...';
     setStatus('UA 修改模块已打开');
+    loadUaSimple().catch((err) => {
+      loadUaFallbackProfiles(err.message || '读取失败');
+    });
   });
   els.charsetSwitch.addEventListener('click', () => {
     openAssistPanel('charset');
     els.charsetStatus.textContent = '功能正在开发中';
     setStatus('网站编码修改功能正在开发中');
-  });
-  els.uaSwitch.addEventListener('click', () => {
-    loadUaSimple().catch((err) => {
-      loadUaFallbackProfiles(err.message || '读取失败');
-    });
   });
   els.copyClose.addEventListener('click', closeAssistPanels);
   els.webrtcClose.addEventListener('click', closeAssistPanels);
@@ -564,7 +564,10 @@ function webrtcPolicyLabel(policy) {
 }
 
 function updateWebrtcGuardUi(state = webrtcGuardState) {
-  const config = state.config || { policy: 'disable_non_proxied_udp', strongBlock: false };
+  const rawConfig = state.config || { policy: 'disable_non_proxied_udp', strongBlock: false };
+  const config = !state.enabled && rawConfig.policy === 'default' && !rawConfig.strongBlock
+    ? { ...rawConfig, policy: 'disable_non_proxied_udp' }
+    : rawConfig;
   webrtcGuardState = {
     enabled: Boolean(state.enabled),
     apiSupported: Boolean(state.apiSupported),
@@ -1914,6 +1917,26 @@ async function collectSniffPageSignals() {
     args: [selectors]
   });
   return result?.result || {};
+}
+
+function ensureSniffExtendedRulesLoaded() {
+  if (window.__AEGISSCOPE_SNIFF_WEBTECH_READY__) return Promise.resolve(true);
+  if (sniffExtendedRulesLoadPromise) return sniffExtendedRulesLoadPromise;
+  sniffExtendedRulesLoadPromise = new Promise((resolve) => {
+    const script = document.createElement('script');
+    script.src = chrome.runtime.getURL('sniff-rules-webtech.js');
+    script.async = false;
+    script.onload = () => {
+      window.__AEGISSCOPE_SNIFF_WEBTECH_READY__ = true;
+      resolve(true);
+    };
+    script.onerror = () => {
+      sniffExtendedRulesLoadPromise = null;
+      resolve(false);
+    };
+    document.head.appendChild(script);
+  });
+  return sniffExtendedRulesLoadPromise;
 }
 
 function getSniffDomSelectors() {
@@ -3751,6 +3774,8 @@ async function openSiteSniff(options = {}) {
   setStatus('正在进行网站嗅探...');
 
   try {
+    const extendedReady = await ensureSniffExtendedRulesLoaded();
+    if (!extendedReady) setStatus('网站嗅探扩展规则加载失败，已使用基础规则继续');
     const cacheKey = await getSniffCacheKey();
     const cached = options.bypassCache ? null : getCachedSniffResult(cacheKey);
     if (cached) {

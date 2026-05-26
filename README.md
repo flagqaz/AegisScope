@@ -3,7 +3,7 @@
 <div align="center">
   <img src="icons/icon128.png" alt="玄镜 AegisScope" width="88" height="88">
 
-  <h2>玄镜 AegisScope V2.2.2</h2>
+  <h2>玄镜 AegisScope V2.2.3</h2>
 
   <p>
     前端代码资产采集、网站嗅探、备案查询、指纹扫描、泄露扫描、漏洞审计、浏览器辅助与 Vue Router 运行时分析工具。
@@ -174,13 +174,13 @@ Vue 工具模块用于分析当前页面中的 Vue / Vue Router 运行时实例�
 
 ### 浏览器辅助
 
-浏览器辅助模块位于主弹窗第二行功能区，V2.2.2 已接入“解除复制”“WebRTC”和“UA 修改”三个能力。
+浏览器辅助模块位于主弹窗第二行功能区，当前版本已接入“解除复制”“WebRTC”和“UA 修改”三个能力。
 
 解除复制用于在已授权页面中临时解除选择、复制、右键菜单、快捷键和粘贴拦截限制。模块支持当前页面启用、当前域名自动启用、增强模式、动态节点处理、Shadow DOM 处理、鼠标拖拽拦截处理，以及“复制当前选区”快捷操作。对于部分文库、在线文档、富文本阅读页和常见内容站点，插件会结合页面选区、编辑器选区、可见文本层和站点专项适配进行提取。
 
 ![解除复制](docs/images/copy-unlock-overview.png)
 
-WebRTC 防泄漏用于降低浏览器通过 WebRTC 暴露本机网络地址的风险。模块优先使用浏览器官方 WebRTC 隐私策略，支持“禁用非代理 UDP”“仅公共接口”“公共与私有接口”和“浏览器默认”；同时提供强阻断模式，可在页面上下文中禁用 `RTCPeerConnection`、`RTCSessionDescription`、`getUserMedia`、`mediaDevices`、`enumerateDevices`、`RTCDataChannel`、`RTCIceCandidate` 等对象。模块支持检测当前页 WebRTC 对象暴露情况，便于确认防护效果。强阻断可能影响视频会议、摄像头、语音通话、在线客服等依赖 WebRTC 的正常功能，请按需开启。
+WebRTC 防泄漏用于降低浏览器通过 WebRTC 暴露本机网络地址的风险。模块优先使用浏览器官方 WebRTC 隐私策略，支持“禁用非代理 UDP”“仅公共接口”“公共与私有接口”和“浏览器默认”；未启用防护时，打开 WebRTC 面板会默认选中“强保护：禁用非代理 UDP”，点击“应用 WebRTC 策略”后才会生效。同时提供强阻断模式，可在页面上下文中禁用 `RTCPeerConnection`、`RTCSessionDescription`、`getUserMedia`、`mediaDevices`、`enumerateDevices`、`RTCDataChannel`、`RTCIceCandidate` 等对象。模块支持检测当前页 WebRTC 对象暴露情况，便于确认防护效果。强阻断可能影响视频会议、摄像头、语音通话、在线客服等依赖 WebRTC 的正常功能，请按需开启。
 
 ![WebRTC 防泄漏](docs/images/webrtc-guard-overview.png)
 
@@ -215,7 +215,7 @@ UA 修改用于在授权测试场景中快速切换当前页面的 User-Agent。
 
 ### Chrome / Edge 加载未打包扩展
 
-1. 解压 `玄镜 AegisScope_V2.2.2.zip`。
+1. 解压 `玄镜 AegisScope_V2.2.3.zip`。
 2. 打开浏览器扩展管理页面：
    - Chrome：`chrome://extensions`
    - Edge：`edge://extensions`
@@ -298,7 +298,7 @@ UA 修改用于在授权测试场景中快速切换当前页面的 User-Agent。
 #### WebRTC 防泄漏
 
 1. 点击主弹窗第二行中的“WebRTC”。
-2. 选择 WebRTC 隐私策略，推荐使用“强保护：禁用非代理 UDP”。
+2. 默认会选中“强保护：禁用非代理 UDP”，也可以按需切换其他 WebRTC 隐私策略。
 3. 如需要页面级阻断，可勾选“强阻断页面 WebRTC 对象”。
 4. 点击“应用 WebRTC 策略”。
 5. 点击“检测当前页”可查看当前页面 WebRTC 对象是否仍然暴露。
@@ -418,6 +418,13 @@ HTML 单文件保存会尽量内联当前页面可访问的 CSS、图片、图�
 
 ## 版本记录
 
+### V2.2.3
+
+- 基于 V2.2.2 的主弹窗性能与代码整理版本。
+- 合并 UA 修改入口的重复点击监听，保持原有 UA 选择、应用范围、检测和恢复默认功能不变。
+- 网站嗅探扩展规则改为打开插件后自动延后加载，不再随主弹窗 HTML 同步阻塞解析；网站嗅探仍保持插件打开后默认自动运行。
+- WebRTC 面板在未启用防护时默认选中“强保护：禁用非代理 UDP”，点击应用后才会写入浏览器隐私策略；已启用的历史策略不会被自动覆盖。
+
 ### V2.2.2
 
 - 基于 V2.2.1 的 UA 修改功能实装版本。
@@ -527,11 +534,12 @@ HTML 单文件保存会尽量内联当前页面可访问的 CSS、图片、图�
 - 支持 JSON / Markdown 报告导出。
 
 
-玄镜 AegisScope V2.2.2  
+玄镜 AegisScope V2.2.3  
 为授权前端安全测试、代码资产分析和漏洞审计而生。
+
 ## Star History
 
-<a href="https://www.star-history.com/?repos=flagqaz%2FAegisScope&type=date&legend=bottom-right">
+<a href="https://www.star-history.com/?repos=flagqaz%2FAegisScope&type=date&legend=top-left">
  <picture>
    <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/chart?repos=flagqaz/AegisScope&type=date&theme=dark&legend=top-left" />
    <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/chart?repos=flagqaz/AegisScope&type=date&legend=top-left" />
