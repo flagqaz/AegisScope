@@ -195,21 +195,21 @@ UA 修改用于在授权测试场景中快速切换当前页面的 User-Agent。
 | 模块 | 文件 | 说明 |
 | --- | --- | --- |
 | 主弹窗 | `popup.html` | 代码资产列表、JS/HTML 保存、入口导航 |
-| 解除复制 | `popup.html` / `copy-unlock.js` | 在授权页面解除选择、复制、右键菜单、快捷键和粘贴拦截限制 |
-| WebRTC 防泄漏 | `popup.html` / `webrtc-guard.js` / `background.js` | WebRTC 隐私策略、页面强阻断和当前页暴露检测 |
-| UA 修改 | `popup.html` / `background.js` / `ua-page.js` / `ua-isolated.js` | 按分类切换 User-Agent，支持当前标签、当前域名和全部页面应用 |
-| 网站嗅探 | `popup.html` / `sniff-rules.js` | 主弹窗内嵌展示技术栈、CMS、框架、库、响应头与安全头识别 |
+| 解除复制 | `popup.html` / `scripts/injected/copy-unlock.js` | 在授权页面解除选择、复制、右键菜单、快捷键和粘贴拦截限制 |
+| WebRTC 防泄漏 | `popup.html` / `scripts/injected/webrtc-guard.js` / `scripts/background.js` | WebRTC 隐私策略、页面强阻断和当前页暴露检测 |
+| UA 修改 | `popup.html` / `scripts/background.js` / `scripts/injected/ua-page.js` / `scripts/injected/ua-isolated.js` | 按分类切换 User-Agent，支持当前标签、当前域名和全部页面应用 |
+| 网站嗅探 | `popup.html` / `rules/sniff-rules.js` | 主弹窗内嵌展示技术栈、CMS、框架、库、响应头与安全头识别 |
 | 网站备案查询 | `popup.html` | 主弹窗内嵌展示当前页面 ICP 备案号、公安备案号、许可证线索和备案相关链接 |
-| 指纹扫描 | `fingerprint-scan.html` / `fingerprint-rules.js` / `fingerprint-rules-extended.js` | 从网站嗅探入口进入，自动扫描站点产品指纹并展示命中证据 |
-| jQuery 低版本验证 | `jquery-vuln-loader.html` / `jquery-vuln-check.html` | 从网站嗅探的 jQuery 结果进入，获取并加载嗅探到的目标 jQuery 链接后展示 PoC 验证页面 |
-| 泄露扫描 | `scan.html` | 敏感信息、密钥、加密风险、打包产物分析 |
-| 漏洞审计 | `vuln-scan.html` | 源码审计、API 测试、漏洞验证 |
-| Vue 控制台 | `vue-tools.html` | Vue Router 运行时分析与路由跳转 |
-| 规则库 | `rules.js` | 泄露扫描与安全规则 |
-| 分析器 | `analyzer.js` | 规则执行、去重、聚合与排序 |
-| 嗅探规则 | `sniff-rules.js` / `sniff-rules-webtech.js` | 网站技术指纹规则与扩展被动识别规则 |
-| 后台采集 | `background.js` | 网络脚本资源、响应头与站点资源记录 |
-| 内容脚本 | `content.js` | 页面脚本资产采集 |
+| 指纹扫描 | `pages/fingerprint-scan.html` / `rules/fingerprint-rules.js` / `rules/fingerprint-rules-extended.js` | 从网站嗅探入口进入，自动扫描站点产品指纹并展示命中证据 |
+| jQuery 低版本验证 | `pages/jquery-vuln-loader.html` / `pages/jquery-vuln-check.html` | 从网站嗅探的 jQuery 结果进入，获取并加载嗅探到的目标 jQuery 链接后展示 PoC 验证页面 |
+| 泄露扫描 | `pages/scan.html` | 敏感信息、密钥、加密风险、打包产物分析 |
+| 漏洞审计 | `pages/vuln-scan.html` | 源码审计、API 测试、漏洞验证 |
+| Vue 控制台 | `pages/vue-tools.html` | Vue Router 运行时分析与路由跳转 |
+| 规则库 | `rules/rules.js` | 泄露扫描与安全规则 |
+| 分析器 | `scripts/lib/analyzer.js` | 规则执行、去重、聚合与排序 |
+| 嗅探规则 | `rules/sniff-rules.js` / `rules/sniff-rules-webtech.js` | 网站技术指纹规则与扩展被动识别规则 |
+| 后台采集 | `scripts/background.js` | 网络脚本资源、响应头与站点资源记录 |
+| 内容脚本 | `scripts/content.js` | 页面脚本资产采集 |
 
 ## 安装方式
 
@@ -424,6 +424,7 @@ HTML 单文件保存会尽量内联当前页面可访问的 CSS、图片、图�
 - 合并 UA 修改入口的重复点击监听，保持原有 UA 选择、应用范围、检测和恢复默认功能不变。
 - 网站嗅探扩展规则改为打开插件后自动延后加载，不再随主弹窗 HTML 同步阻塞解析；网站嗅探仍保持插件打开后默认自动运行。
 - WebRTC 面板在未启用防护时默认选中“强保护：禁用非代理 UDP”，点击应用后才会写入浏览器隐私策略；已启用的历史策略不会被自动覆盖。
+- 整理插件根路径文件结构，将独立页面、样式、脚本、注入脚本、公共分析器和规则库归入 `pages/`、`styles/`、`scripts/`、`scripts/injected/`、`scripts/lib/`、`rules/` 等目录。
 
 ### V2.2.2
 

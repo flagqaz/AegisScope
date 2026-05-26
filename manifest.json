@@ -19,11 +19,11 @@
     "<all_urls>"
   ],
   "background": {
-    "service_worker": "background.js"
+    "service_worker": "scripts/background.js"
   },
   "sandbox": {
     "pages": [
-      "jquery-vuln-check.html"
+      "pages/jquery-vuln-check.html"
     ]
   },
   "content_security_policy": {

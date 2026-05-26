@@ -1,0 +1,107 @@
+﻿<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <title>玄镜 AegisScope 漏洞审计</title>
+  <link rel="stylesheet" href="../styles/vuln-scan.css">
+</head>
+<body>
+  <header class="page-header">
+    <div class="brand">
+      <div class="mark" aria-hidden="true"><img src="../icons/icon48.png" alt=""></div>
+      <div>
+        <h1>玄镜 AegisScope 漏洞审计 <span class="version">V2.1.5</span></h1>
+        <span id="origin" class="origin"></span>
+      </div>
+    </div>
+    <div class="actions">
+      <a class="repo-link" href="https://github.com/flagqaz/AegisScope" target="_blank" rel="noreferrer" title="GitHub: flagqaz/AegisScope" aria-label="打开 GitHub 项目">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2C6.48 2 2 6.58 2 12.22c0 4.52 2.87 8.35 6.85 9.7.5.09.68-.22.68-.49l-.01-1.9c-2.78.62-3.37-1.2-3.37-1.2-.45-1.19-1.11-1.5-1.11-1.5-.91-.64.07-.63.07-.63 1 .07 1.53 1.06 1.53 1.06.89 1.56 2.34 1.11 2.91.85.09-.66.35-1.11.63-1.36-2.22-.26-4.55-1.14-4.55-5.06 0-1.12.39-2.03 1.03-2.75-.1-.26-.45-1.3.1-2.71 0 0 .84-.28 2.75 1.05A9.34 9.34 0 0 1 12 6.94c.85 0 1.7.12 2.5.34 1.9-1.33 2.74-1.05 2.74-1.05.55 1.41.2 2.45.1 2.71.64.72 1.03 1.63 1.03 2.75 0 3.93-2.34 4.79-4.57 5.05.36.32.68.94.68 1.9l-.01 2.79c0 .27.18.59.69.49A10.15 10.15 0 0 0 22 12.22C22 6.58 17.52 2 12 2Z"/></svg>
+      </a>
+      <a class="top-author-link" href="https://github.com/flagqaz/AegisScope" target="_blank" rel="noreferrer">by.农夫三拳</a>
+      <label>深度 <input id="depth" type="number" min="1" max="4" value="2"></label>
+      <label>并发 <input id="concurrency" type="number" min="1" max="8" value="4"></label>
+      <label class="check"><input id="apiTest" type="checkbox" checked> API 探测</label>
+      <button id="start" class="primary">开始漏扫</button>
+      <button id="stop">停止</button>
+      <button id="exportJson">导出 JSON</button>
+      <button id="exportMd">导出 Markdown</button>
+    </div>
+  </header>
+
+  <section class="summary">
+    <div class="card score">
+      <div class="label">风险等级</div>
+      <div class="value" id="riskLevel">待扫描</div>
+      <div class="sub" id="riskScore">score 0</div>
+    </div>
+    <div class="card">
+      <div class="label">代码文件</div>
+      <div class="value" id="fileCount">0</div>
+      <div class="sub" id="codeSize">0 KB</div>
+    </div>
+    <div class="card">
+      <div class="label">接口资产</div>
+      <div class="value" id="apiCount">0</div>
+      <div class="sub" id="apiTested">0 tested</div>
+    </div>
+    <div class="card">
+      <div class="label">审计发现</div>
+      <div class="value" id="findingCount">0</div>
+      <div class="sub" id="progress">就绪</div>
+    </div>
+  </section>
+
+  <section class="matrix">
+    <div class="panel">
+      <div class="panel-head">
+        <h2>漏洞发现</h2>
+        <div class="filters">
+          <input id="search" type="search" placeholder="过滤漏洞、接口、文件">
+          <select id="severity">
+            <option value="all">全部风险</option>
+            <option value="critical">严重</option>
+            <option value="high">高危</option>
+            <option value="medium">中危</option>
+            <option value="low">低危</option>
+            <option value="info">提示</option>
+          </select>
+        </div>
+      </div>
+      <div id="findings" class="findings"></div>
+    </div>
+
+    <div class="panel">
+      <div class="panel-head">
+        <h2>API 批量测试</h2>
+        <div class="api-head-actions">
+          <span id="apiStatus" class="status">未开始</span>
+          <button id="runApiTests">批量测试 API</button>
+        </div>
+      </div>
+      <div class="api-controls">
+        <div class="method-pills">
+          <label><input type="checkbox" name="apiMethod" value="GET" checked> GET</label>
+          <label><input type="checkbox" name="apiMethod" value="POST" checked> POST</label>
+          <label><input type="checkbox" name="apiMethod" value="HEAD"> HEAD</label>
+          <label><input type="checkbox" name="apiMethod" value="OPTIONS"> OPTIONS</label>
+          <label><input type="checkbox" name="apiMethod" value="PUT"> PUT</label>
+          <label><input type="checkbox" name="apiMethod" value="PATCH"> PATCH</label>
+          <label><input type="checkbox" name="apiMethod" value="DELETE"> DELETE</label>
+        </div>
+        <textarea id="apiBody" spellcheck="false" placeholder='POST/PUT/PATCH 请求体，默认 {}'>{}</textarea>
+      </div>
+      <div id="apis" class="api-list"></div>
+    </div>
+  </section>
+
+  <footer class="page-footer">
+    <span>玄镜 AegisScope</span>
+    <a class="author-link" href="https://github.com/flagqaz/AegisScope" target="_blank" rel="noreferrer">by.农夫三拳</a>
+  </footer>
+
+  <script src="../rules/rules.js"></script>
+  <script src="../scripts/lib/analyzer.js"></script>
+  <script src="../scripts/pages/vuln-scan.js"></script>
+</body>
+</html>
