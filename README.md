@@ -529,5 +529,12 @@ HTML 单文件保存会尽量内联当前页面可访问的 CSS、图片、图�
 
 玄镜 AegisScope V2.2.2  
 为授权前端安全测试、代码资产分析和漏洞审计而生。
-## Stargazers over time
-[![Stargazers over time](https://starchart.cc/flagqaz/AegisScope.svg?variant=adaptive)](https://starchart.cc/flagqaz/AegisScope)
+## Star History
+
+<a href="https://www.star-history.com/?repos=flagqaz%2FAegisScope&type=date&legend=bottom-right">
+ <picture>
+   <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/chart?repos=flagqaz/AegisScope&type=date&theme=dark&legend=top-left" />
+   <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/chart?repos=flagqaz/AegisScope&type=date&legend=top-left" />
+   <img alt="Star History Chart" src="https://api.star-history.com/chart?repos=flagqaz/AegisScope&type=date&legend=top-left" />
+ </picture>
+</a>
