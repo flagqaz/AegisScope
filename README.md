@@ -529,3 +529,5 @@ HTML 单文件保存会尽量内联当前页面可访问的 CSS、图片、图�
 
 玄镜 AegisScope V2.2.2  
 为授权前端安全测试、代码资产分析和漏洞审计而生。
+## Stargazers over time
+[![Stargazers over time](https://starchart.cc/flagqaz/AegisScope.svg?variant=adaptive)](https://starchart.cc/flagqaz/AegisScope)
