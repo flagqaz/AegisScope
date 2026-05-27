@@ -1,6 +1,4 @@
-﻿# 玄镜 AegisScope
-
-<div align="center">
+﻿<div align="center">
   <img src="icons/icon128.png" alt="玄镜 AegisScope" width="88" height="88">
 
   <h2>玄镜 AegisScope V2.2.4</h2>
