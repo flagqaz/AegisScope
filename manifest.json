@@ -1,0 +1,48 @@
+{
+  "manifest_version": 3,
+  "name": "玄镜 AegisScope",
+  "version": "2.2.5",
+  "version_name": "V2.2.5",
+  "description": "前端代码资产采集、网站嗅探、备案查询、指纹扫描、泄露扫描、漏洞审计、浏览器辅助与 Vue Router 运行时分析工具。",
+  "homepage_url": "https://github.com/flagqaz/AegisScope",
+  "permissions": [
+    "activeTab",
+    "scripting",
+    "downloads",
+    "storage",
+    "clipboardWrite",
+    "webRequest",
+    "privacy",
+    "declarativeNetRequest"
+  ],
+  "host_permissions": [
+    "<all_urls>"
+  ],
+  "background": {
+    "service_worker": "scripts/background.js"
+  },
+  "sandbox": {
+    "pages": [
+      "pages/jquery-vuln-check.html"
+    ]
+  },
+  "content_security_policy": {
+    "sandbox": "sandbox allow-scripts allow-forms allow-popups allow-modals; script-src 'self' http: https: 'unsafe-inline' 'unsafe-eval'; object-src 'self'"
+  },
+  "action": {
+    "default_popup": "popup.html",
+    "default_title": "玄镜 AegisScope V2.2.5",
+    "default_icon": {
+      "16": "icons/icon16.png",
+      "32": "icons/icon32.png",
+      "48": "icons/icon48.png",
+      "128": "icons/icon128.png"
+    }
+  },
+  "icons": {
+    "16": "icons/icon16.png",
+    "32": "icons/icon32.png",
+    "48": "icons/icon48.png",
+    "128": "icons/icon128.png"
+  }
+}
