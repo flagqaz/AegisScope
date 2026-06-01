@@ -5,11 +5,14 @@ const targetJquerySrc = params.get('jquerySrc') || '';
 const sniffedVersion = params.get('version') || '';
 let candidates = [];
 try { candidates = JSON.parse(params.get('candidates') || '[]'); } catch {}
-let activeJquerySrc = targetJquerySrc;
+
+let activeJquerySrc = '';
 let loadedVersion = '';
+const skippedCandidates = new Map();
+const probeProgress = { checked: 0, total: 0, found: 0, done: false };
 
 document.addEventListener('DOMContentLoaded', () => {
-  setText('targetJquerySrc', targetJquerySrc || '未传入 jQuery 链接');
+  setText('targetJquerySrc', '等待可用 jQuery 链接');
   setText('sniffedVersion', sniffedVersion || '未识别到版本');
   setText('manualJquerySrc', '');
   renderCandidates();
@@ -19,27 +22,50 @@ document.addEventListener('DOMContentLoaded', () => {
   document.querySelectorAll('button[data-poc][data-mode]').forEach((button) => {
     button.addEventListener('click', () => test(button.dataset.poc, button.dataset.mode === 'jquery'));
   });
-  setText('loadStatus', targetJquerySrc ? '等待加载器获取目标 jQuery...' : '未传入可加载的目标 jQuery 链接。');
+  setText('loadStatus', candidates.length ? '等待加载器筛选可用 jQuery 链接...' : '未传入可加载的目标 jQuery 链接。');
 });
 
 function useManualJquerySrc() {
   const input = document.getElementById('manualJquerySrc');
   const value = String(input.value || '').trim();
-  activeJquerySrc = value || targetJquerySrc;
+  activeJquerySrc = value;
   resetLoadedJquery();
   setText('targetJquerySrc', activeJquerySrc || '未传入 jQuery 链接');
-  setText('loadStatus', activeJquerySrc ? '正在加载 jQuery 链接...' : '未传入可加载的目标 jQuery 链接。');
+  setText('loadStatus', activeJquerySrc ? '正在加载手动填写的 jQuery 链接...' : '请先手动填写有效的 jQuery 链接。');
+  if (!activeJquerySrc) return;
   parent.postMessage({ type: 'AEGISSCOPE_LOAD_JQUERY', src: activeJquerySrc }, '*');
 }
 
 window.addEventListener('message', (event) => {
   const data = event.data || {};
+  if (data.type === 'LOAD_JQUERY_STATUS') {
+    setText('loadStatus', data.error || '正在筛选候选链接...');
+  }
+  if (data.type === 'LOAD_JQUERY_PROGRESS') {
+    updateCandidateProgress(data);
+  }
+  if (data.type === 'LOAD_JQUERY_CANDIDATE_SKIP') {
+    if (data.src) skippedCandidates.set(data.src, data.error || '不可用，已跳过。');
+    renderCandidates();
+    appendLog(`已跳过候选链接：${data.src || '-'}，原因：${data.error || '不可用'}`);
+  }
+  if (data.type === 'LOAD_JQUERY_CANDIDATE_OK') {
+    if (data.src && !candidates.includes(data.src)) candidates.push(data.src);
+    if (data.src) skippedCandidates.delete(data.src);
+    renderCandidates();
+  }
   if (data.type === 'LOAD_JQUERY_SOURCE') {
     activeJquerySrc = data.src || activeJquerySrc || targetJquerySrc;
+    if (activeJquerySrc) skippedCandidates.delete(activeJquerySrc);
     setText('targetJquerySrc', activeJquerySrc || '未传入 jQuery 链接');
+    renderCandidates();
     loadTargetJqueryFromSource(activeJquerySrc, data.code || '', data);
   }
   if (data.type === 'LOAD_JQUERY_ERROR') {
+    if (data.src) {
+      skippedCandidates.set(data.src, data.error || '不可用，已跳过。');
+      renderCandidates();
+    }
     setText('loadStatus', `目标 jQuery 获取失败：${data.error || '未知错误'}`);
     appendLog(`加载失败：${data.src || activeJquerySrc || '-'}，${data.error || '未知错误'}`);
   }
@@ -52,8 +78,10 @@ function loadTargetJqueryFromSource(src, code, meta = {}) {
   }
   try {
     resetLoadedJquery();
+    const sourceVersion = extractJqueryVersionFromSource(code);
     (0, eval)(`${code}\n//# sourceURL=${src || 'target-jquery.js'}`);
-    loadedVersion = window.jQuery && window.jQuery.fn ? window.jQuery.fn.jquery : extractJqueryVersionFromSource(code);
+    const runtimeVersion = window.jQuery && window.jQuery.fn ? window.jQuery.fn.jquery : '';
+    loadedVersion = sourceVersion || runtimeVersion || '';
     setText('loadedVersion', loadedVersion || '未读取到版本');
     updateRisk(loadedVersion || sniffedVersion);
     updatePocHints(loadedVersion || sniffedVersion);
@@ -61,7 +89,10 @@ function loadTargetJqueryFromSource(src, code, meta = {}) {
     const mismatchText = sniffedVersion && loadedVersion && normalizeVersion(sniffedVersion) !== normalizeVersion(loadedVersion)
       ? `；注意：当前链接实际版本 ${loadedVersion} 与网站嗅探版本 ${sniffedVersion} 不一致，可能页面存在多个 jQuery，或当前候选链接不是运行时版本`
       : '';
-    setText('loadStatus', loadedVersion ? `已加载目标 jQuery：${loadedVersion}${cacheText}${mismatchText}` : `已加载脚本，但未读取到 jQuery 版本${cacheText}`);
+    const runtimeHint = sourceVersion && runtimeVersion && normalizeVersion(sourceVersion) !== normalizeVersion(runtimeVersion)
+      ? `；执行后运行时版本为 ${runtimeVersion}，已优先采用源码声明版本`
+      : '';
+    setText('loadStatus', loadedVersion ? `已加载目标 jQuery：${loadedVersion}${cacheText}${mismatchText}${runtimeHint}` : `已加载脚本，但未读取到 jQuery 版本${cacheText}`);
     appendLog(`加载成功：${src || '-'}，版本 ${loadedVersion || '未知'}`);
   } catch (err) {
     setText('loadStatus', `目标 jQuery 执行失败：${err.message || String(err)}`);
@@ -88,18 +119,39 @@ function test(n, jq) {
   appendLog(`已执行 PoC ${n}：${mode}，当前版本 ${loadedVersion || sniffedVersion || '未知'}，链接 ${activeJquerySrc || '-'}`);
 }
 
+function updateCandidateProgress(data) {
+  probeProgress.checked = Number(data.checked || 0);
+  probeProgress.total = Number(data.total || 0);
+  probeProgress.found = Number(data.found || 0);
+  probeProgress.done = Boolean(data.done);
+  const text = document.getElementById('candidateProgressText');
+  const bar = document.getElementById('candidateProgressBar');
+  if (!text || !bar) return;
+  const total = Math.max(probeProgress.total, 0);
+  const checked = Math.min(probeProgress.checked, total || probeProgress.checked);
+  const percent = total ? Math.round((checked / total) * 100) : 0;
+  const phase = data.phase || (probeProgress.done ? '探测完成' : '正在探测');
+  text.textContent = total
+    ? `${phase}：${checked}/${total}，已发现 ${probeProgress.found} 个可用核心库`
+    : `${phase}：等待候选链接`;
+  bar.style.width = `${probeProgress.done ? 100 : percent}%`;
+}
+
 function renderCandidates() {
   const box = document.getElementById('candidateList');
-  const unique = Array.from(new Set([targetJquerySrc, ...candidates].filter(Boolean))).slice(0, 8);
-  if (!unique.length) {
-    box.innerHTML = '<div class="hint">暂无候选链接，可手动填写 jQuery 核心库链接。</div>';
+  const unique = Array.from(new Set([targetJquerySrc, ...candidates].filter(Boolean))).slice(0, 24);
+  const available = unique.filter((url) => !skippedCandidates.has(url));
+  if (!available.length) {
+    box.innerHTML = skippedCandidates.size
+      ? '<div class="hint">候选链接已全部跳过，可手动填写有效的 jQuery 核心库链接。</div>'
+      : '<div class="hint">暂无候选链接，可手动填写 jQuery 核心库链接。</div>';
     return;
   }
-  box.innerHTML = unique.map((url, index) => `
+  box.innerHTML = available.map((url) => `
     <div class="candidate">
       <div>
         <code>${escapeHtml(url)}</code>
-        <br><small>${index === 0 && url === targetJquerySrc ? '当前默认' : candidateLabel(url)}</small>
+        <br><small>${candidateLabel(url)}</small>
       </div>
       <button class="secondary" type="button" data-candidate="${escapeAttr(url)}">使用</button>
     </div>
@@ -180,7 +232,8 @@ function extractJqueryVersionFromSource(code) {
     /jquery\s*[:=]\s*["']([0-9][\w.-]+)["']/i,
     /fn\.jquery\s*=\s*["']([0-9][\w.-]+)["']/i,
     /var\s+\w+\s*=\s*["']([0-9][\w.-]+)["'][^;]{0,160}function\s*\([^)]*\)\s*\{[^}]{0,120}return\s+new/i,
-    /jQuery JavaScript Library v([0-9][\w.-]+)/i
+    /jQuery JavaScript Library v([0-9][\w.-]+)/i,
+    /jQuery v([0-9][\w.-]+)/i
   ];
   for (const pattern of patterns) {
     const match = pattern.exec(text);

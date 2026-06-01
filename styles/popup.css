@@ -756,21 +756,21 @@ body.sniff-mode #empty {
   font-size: 10px;
 }
 .sniff-vue-jump {
-  min-height: 25px;
-  padding: 4px 7px;
-  border: 1px solid rgba(102,242,201,0.34);
+  min-height: 27px;
+  padding: 4px 8px;
+  border: 1px solid rgba(255,206,109,0.42);
   border-radius: 999px;
-  background: rgba(102,242,201,0.16);
-  color: #b9ffe9;
-  font-size: 10px;
+  background: rgba(255,206,109,0.14);
+  color: #ffe7ad;
+  font-size: 11px;
   font-weight: 700;
   white-space: nowrap;
   width: 100%;
   max-width: 100%;
 }
 .sniff-vue-jump:hover {
-  border-color: rgba(102,242,201,0.62);
-  background: rgba(102,242,201,0.24);
+  border-color: rgba(255,206,109,0.68);
+  background: rgba(255,206,109,0.22);
 }
 .sniff-jquery-check {
   min-height: 27px;
@@ -782,7 +782,7 @@ body.sniff-mode #empty {
   font-size: 11px;
   font-weight: 700;
   white-space: nowrap;
-  width: fit-content;
+  width: 100%;
   max-width: 100%;
 }
 .sniff-jquery-check:hover {

