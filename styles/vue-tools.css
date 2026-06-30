@@ -365,3 +365,961 @@ dialog p { margin: 0; padding: 14px; color: var(--muted); line-height: 1.6; }
   .runtime-actions { grid-template-columns: 1fr; }
   .grid { grid-template-columns: 1fr; }
 }
+/* V2.2.7 fresh visual theme */
+:root {
+  color-scheme: light;
+  --ink: #163447;
+  --muted: #5d7788;
+  --line: rgba(78, 132, 154, 0.22);
+  --panel: rgba(255, 255, 255, 0.84);
+  --deep: rgba(239, 249, 253, 0.92);
+  --accent: #5b8dff;
+  --accent-strong: #6ee7d8;
+  --mint: #6ee7d8;
+  --violet: #8a7cff;
+  --warn: #ef4d6a;
+  --gold: #f2ad3b;
+}
+html, body {
+  color: var(--ink);
+  background:
+    radial-gradient(circle at 12% 8%, rgba(110, 231, 216, 0.24), transparent 30%),
+    radial-gradient(circle at 86% 0%, rgba(91, 141, 255, 0.20), transparent 28%),
+    linear-gradient(rgba(126, 178, 196, 0.12) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(126, 178, 196, 0.12) 1px, transparent 1px),
+    linear-gradient(135deg, #f7fcff 0%, #edf8fb 50%, #f9fbff 100%);
+  background-size: auto, auto, 26px 26px, 26px 26px, auto;
+}
+.page-header,
+.card,
+.panel,
+.file-group,
+.finding,
+.api,
+.route,
+dialog,
+.toolbar,
+.filters,
+.api-controls,
+.card-block,
+.state,
+.auth-enhance,
+.target-bar,
+.evidence-card,
+.result-card,
+.summary-card,
+.detail-card {
+  color: var(--ink);
+  border-color: var(--line);
+  background: rgba(255, 255, 255, 0.80);
+  box-shadow: 0 16px 38px rgba(78, 132, 154, 0.12);
+}
+.page-header {
+  background: linear-gradient(135deg, rgba(255,255,255,0.92), rgba(232,248,253,0.84));
+}
+.logo,
+.icon,
+.brand-icon {
+  background: #ffffff;
+  box-shadow: 0 10px 24px rgba(78, 132, 154, 0.16);
+}
+h1, h2, h3, .title, .value, .path, .method, .panel-head h2, .card-block h2, .finding .body .name {
+  color: #123247;
+}
+p, small, .label, .sub, .desc, .meta, .card .sub, .card .label, .panel-head small, .route-url, .hint, footer {
+  color: var(--muted);
+}
+button,
+input,
+select,
+textarea,
+.actions button,
+.finding .actions button,
+dialog header button,
+.inline-actions select,
+.api-actions select,
+.filters input,
+.filters select,
+.panel-head input,
+.toolbar input,
+.toolbar select,
+.api-controls textarea,
+label input[type="number"] {
+  color: #163447;
+  border-color: rgba(78, 132, 154, 0.28);
+  background: rgba(255, 255, 255, 0.86);
+  box-shadow: 0 8px 20px rgba(78, 132, 154, 0.08);
+}
+button:hover,
+.actions button:hover,
+.finding .actions button:hover,
+dialog header button:hover {
+  color: #0f2c3e;
+  border-color: rgba(91, 141, 255, 0.36);
+  background: rgba(238, 248, 255, 0.96);
+}
+button.primary,
+button:not(.danger).primary,
+.status.ok,
+.state.ok {
+  color: #092536;
+  border-color: transparent;
+  background: linear-gradient(135deg, #79ead9, #69a4ff 62%, #9d8cff);
+  box-shadow: 0 14px 28px rgba(91, 141, 255, 0.22);
+}
+button.danger,
+.tag.danger,
+.tag.critical,
+.tag.high,
+.finding.high,
+.finding.critical {
+  color: #e94e68;
+  border-color: rgba(233, 78, 104, 0.34);
+  background: rgba(255, 242, 245, 0.84);
+}
+.tag,
+.badge,
+.sev-badge,
+.conf-badge,
+.status,
+.state,
+.auth-check,
+.chip,
+.card.score {
+  color: #236c63;
+  border-color: rgba(66, 190, 169, 0.28);
+  background: rgba(224, 249, 244, 0.86);
+}
+.tag.warn,
+.tag.medium,
+.finding.medium,
+.route.sensitive {
+  color: #805313;
+  border-color: rgba(242, 173, 59, 0.38);
+  background: rgba(255, 246, 222, 0.90);
+}
+code,
+pre,
+.ctx,
+.finding .body .ctx,
+.response-body,
+.evidence,
+.exploit,
+xmp {
+  color: #214d63;
+  border-color: rgba(78, 132, 154, 0.18);
+  background: rgba(246, 251, 253, 0.94);
+}
+dialog::backdrop { background: rgba(20, 45, 60, 0.22); }
+/* V2.2.7 page experience polish */
+body {
+  margin: 0;
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.page-header,
+.summary,
+.card-block,
+.filters,
+.matrix,
+.grid,
+.runtime-control,
+.target-strip,
+.toolbar,
+.workspace,
+#results,
+.page-footer {
+  width: min(1440px, 100%);
+  margin-left: auto;
+  margin-right: auto;
+}
+.page-header {
+  position: sticky;
+  top: 10px;
+  z-index: 20;
+  min-height: auto;
+  padding: 12px 14px;
+  align-items: center;
+  gap: 14px;
+  backdrop-filter: blur(18px);
+}
+.brand {
+  min-width: 260px;
+}
+.mark {
+  flex: 0 0 auto;
+}
+.page-header h1 {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0;
+  line-height: 1.2;
+  font-size: clamp(18px, 2vw, 24px);
+}
+.origin,
+.target-url {
+  display: block;
+  max-width: min(720px, 54vw);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.actions label,
+.check,
+.method-pills label {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 34px;
+  padding: 6px 10px;
+  border: 1px solid rgba(78,132,154,.22);
+  border-radius: 8px;
+  background: rgba(255,255,255,.72);
+  color: var(--muted);
+}
+.actions input[type="number"] {
+  width: 54px;
+  padding: 5px 7px;
+  text-align: center;
+}
+.actions button,
+.actions a.top-author-link,
+.actions a.repo-link {
+  min-height: 34px;
+}
+.summary {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(142px, 1fr));
+  gap: 10px;
+}
+.card {
+  min-height: 72px;
+  padding: 11px 12px;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+}
+.card .label,
+.label {
+  font-size: 12px;
+  line-height: 1.2;
+}
+.card .value,
+.value {
+  margin-top: 4px;
+  font-size: clamp(20px, 2vw, 28px);
+  line-height: 1.05;
+}
+.card .sub,
+.sub {
+  margin-top: 4px;
+  font-size: 12px;
+  line-height: 1.35;
+}
+.filters,
+.toolbar {
+  position: sticky;
+  top: 86px;
+  z-index: 12;
+  display: grid;
+  grid-template-columns: minmax(220px, 1fr) repeat(auto-fit, minmax(150px, max-content));
+  align-items: center;
+  gap: 8px;
+  padding: 10px;
+  border-radius: 10px;
+  backdrop-filter: blur(16px);
+}
+.filters input,
+.toolbar input {
+  min-width: 220px;
+}
+.filters select,
+.toolbar select {
+  min-width: 140px;
+}
+.panel,
+.card-block,
+.file-group {
+  border-radius: 10px;
+}
+.panel-head {
+  position: sticky;
+  top: 0;
+  z-index: 3;
+  min-height: 48px;
+  padding: 10px 12px;
+  backdrop-filter: blur(14px);
+}
+.panel-head h2,
+.card-block h2 {
+  margin: 0;
+  font-size: 16px;
+}
+.findings,
+.api-list,
+.route-list,
+.fingerprints,
+.evidence-list {
+  scrollbar-width: thin;
+}
+.finding,
+.api,
+.route,
+.fingerprint,
+.evidence-item,
+.file-group {
+  transition: transform .16s ease, border-color .16s ease, background .16s ease;
+}
+.finding:hover,
+.api:hover,
+.route:hover,
+.fingerprint:hover,
+.evidence-item:hover,
+.file-group:hover {
+  transform: translateY(-1px);
+  border-color: rgba(91,141,255,.30);
+}
+.page-footer {
+  padding: 4px 2px 10px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+@media (max-width: 980px) {
+  body { padding: 10px; }
+  .page-header { position: static; align-items: flex-start; }
+  .actions { justify-content: flex-start; }
+  .filters,
+  .toolbar { position: static; grid-template-columns: 1fr; }
+  .filters input,
+  .toolbar input,
+  .filters select,
+  .toolbar select { min-width: 0; width: 100%; }
+  .origin,
+  .target-url { max-width: 100%; }
+}
+/* V2.2.7 Vue tool workflow polish */
+.summary { grid-template-columns: repeat(4, minmax(150px, 1fr)); }
+.runtime-control {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 14px;
+  padding: 12px 14px;
+}
+.runtime-title { font-size: 16px; }
+.runtime-desc { margin-top: 4px; line-height: 1.45; }
+.usage-tip {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin-top: 8px;
+}
+.usage-tip span:first-child {
+  flex: 0 0 auto;
+}
+.runtime-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1.25fr) minmax(360px, .75fr);
+  gap: 12px;
+  min-height: min(620px, calc(100vh - 260px));
+}
+.panel {
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+.route-list,
+#details {
+  flex: 1 1 auto;
+  min-height: 360px;
+  max-height: calc(100vh - 330px);
+  overflow: auto;
+}
+.route {
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  padding: 12px;
+}
+.route .path {
+  font-size: 14px;
+  line-height: 1.35;
+}
+.route button {
+  min-width: 72px;
+}
+#details {
+  margin: 0;
+  padding: 12px;
+}
+@media (max-width: 980px) {
+  .summary,
+  .grid,
+  .runtime-control { grid-template-columns: 1fr; }
+  .runtime-actions { justify-content: flex-start; }
+  .route-list,
+  #details { max-height: none; }
+}
+/* V2.2.7 readability rescue */
+:root {
+  --ink: #12283a;
+  --muted: #506b7d;
+  --line: rgba(66, 104, 126, 0.24);
+  --panel: rgba(255, 255, 255, 0.96);
+  --accent: #4f7df3;
+  --accent-strong: #44cdbd;
+  --mint: #44cdbd;
+  --gold: #d98b17;
+  --warn: #d83f5f;
+}
+body { color: #12283a !important; }
+.page-header,
+.summary .card,
+.card,
+.panel,
+.card-block,
+.filters,
+.toolbar,
+.target-strip,
+.runtime-control,
+.file-group,
+.finding,
+.api,
+.route,
+dialog {
+  color: #12283a !important;
+  border-color: rgba(66,104,126,.24) !important;
+  background: rgba(255,255,255,.96) !important;
+  box-shadow: 0 14px 34px rgba(65,105,130,.14) !important;
+}
+.panel-head,
+dialog header,
+.file-group > .file-header,
+.api-controls,
+.method-pills,
+.empty-state,
+.evidence-empty {
+  color: #12283a !important;
+  border-color: rgba(66,104,126,.20) !important;
+  background: rgba(248,252,254,.98) !important;
+}
+h1,
+h2,
+h3,
+.title,
+.value,
+.path,
+.method,
+.card .value,
+.panel-head h2,
+.card-block h2,
+.finding .body .name,
+.runtime-title,
+.target-strip strong,
+.status {
+  color: #12283a !important;
+}
+p,
+small,
+.label,
+.sub,
+.desc,
+.meta,
+.card .label,
+.card .sub,
+.panel-head small,
+.route-url,
+.hint,
+.origin,
+.runtime-desc,
+.usage-tip,
+footer {
+  color: #506b7d !important;
+}
+button,
+input,
+select,
+textarea,
+.actions button,
+.finding .actions button,
+dialog header button,
+.inline-actions select,
+.api-actions select,
+.filters input,
+.filters select,
+.panel-head input,
+.toolbar input,
+.toolbar select,
+.api-controls textarea,
+label input[type="number"] {
+  color: #132b3d !important;
+  border-color: rgba(66,104,126,.30) !important;
+  background: #ffffff !important;
+}
+button:hover,
+.actions button:hover,
+.finding .actions button:hover,
+dialog header button:hover {
+  color: #0b2232 !important;
+  border-color: rgba(79,125,243,.38) !important;
+  background: #eef6ff !important;
+}
+button.primary,
+button:not(.danger).primary {
+  color: #061d2b !important;
+  border-color: transparent !important;
+  background: linear-gradient(135deg, #65dfd1, #68a2ff 70%) !important;
+  box-shadow: 0 12px 24px rgba(79,125,243,.22) !important;
+}
+button.danger,
+.tag.danger,
+.tag.critical,
+.tag.high,
+.finding.high,
+.finding.critical {
+  color: #b72f4d !important;
+  border-color: rgba(216,63,95,.36) !important;
+  background: #fff6f8 !important;
+}
+.tag,
+.badge,
+.sev-badge,
+.conf-badge,
+.status,
+.state,
+.auth-check,
+.chip,
+.card.score {
+  color: #154b43 !important;
+  border-color: rgba(68,205,189,.30) !important;
+  background: #eaf9f6 !important;
+}
+.tag.warn,
+.tag.medium,
+.finding.medium,
+.route.sensitive,
+.usage-tip span:first-child {
+  color: #69430d !important;
+  border-color: rgba(217,139,23,.42) !important;
+  background: #fff4dc !important;
+}
+code,
+pre,
+.ctx,
+xmp,
+.finding .body .ctx,
+.response-body,
+.evidence,
+.exploit,
+#details {
+  color: #183f55 !important;
+  border-color: rgba(66,104,126,.18) !important;
+  background: #f7fbfd !important;
+}
+.finding .body .recommend,
+.finding .body .pos,
+.finding .body .desc {
+  color: #506b7d !important;
+}
+.repo-link,
+.top-author-link,
+.author-link,
+.version {
+  color: #123247 !important;
+}
+dialog::backdrop { background: rgba(20,45,60,.22) !important; }
+/* V2.2.7 accessibility contrast audit */
+body, body * { text-shadow: none; }
+.page-header,
+.card,
+.panel,
+.card-block,
+.filters,
+.toolbar,
+.target-strip,
+.runtime-control,
+.file-group,
+.finding,
+.api,
+.route,
+dialog {
+  background-color: rgba(255,255,255,.98) !important;
+  color: #10283a !important;
+}
+.page-header h1,
+.panel-head h2,
+.card-block h2,
+.card .value,
+.value,
+.title,
+.path,
+.method,
+.finding .body .name,
+.runtime-title,
+.target-strip strong,
+.empty-state strong,
+.evidence-empty strong,
+dialog header strong {
+  color: #10283a !important;
+  font-weight: 800 !important;
+}
+.origin,
+.label,
+.sub,
+.desc,
+.meta,
+.card .label,
+.card .sub,
+.panel-head small,
+.route-url,
+.hint,
+.runtime-desc,
+.usage-tip,
+.finding .body .desc,
+.finding .body .recommend,
+.finding .body .pos,
+footer,
+p,
+small {
+  color: #4d6575 !important;
+}
+.panel-head,
+dialog header,
+.file-group > .file-header,
+.api-controls,
+.method-pills,
+.empty-state,
+.evidence-empty {
+  background: #f3f9fc !important;
+  border-color: rgba(70,108,130,.22) !important;
+}
+button,
+input,
+select,
+textarea,
+.actions button,
+.finding .actions button,
+dialog header button,
+.inline-actions select,
+.api-actions select,
+.filters input,
+.filters select,
+.panel-head input,
+.toolbar input,
+.toolbar select,
+.api-controls textarea,
+label input[type="number"] {
+  color: #10283a !important;
+  background: #ffffff !important;
+  border-color: rgba(70,108,130,.34) !important;
+  font-weight: 700;
+}
+input::placeholder,
+textarea::placeholder { color: #728899 !important; opacity: 1 !important; }
+button.primary,
+button:not(.danger).primary {
+  color: #071d2b !important;
+  background: linear-gradient(135deg, #5fe0d2, #72a6ff 68%) !important;
+  border-color: transparent !important;
+  font-weight: 800 !important;
+}
+button.danger,
+.tag.danger,
+.tag.critical,
+.tag.high,
+.finding.high,
+.finding.critical {
+  color: #a92d48 !important;
+  background: #fff2f5 !important;
+  border-color: rgba(196,55,86,.34) !important;
+}
+.tag,
+.badge,
+.sev-badge,
+.conf-badge,
+.status,
+.state,
+.auth-check,
+.chip,
+.card.score {
+  color: #064f46 !important;
+  background: #dff8f4 !important;
+  border-color: rgba(27,150,134,.30) !important;
+}
+.tag.warn,
+.tag.medium,
+.finding.medium,
+.route.sensitive,
+.usage-tip span:first-child {
+  color: #714808 !important;
+  background: #fff1cf !important;
+  border-color: rgba(191,128,20,.36) !important;
+}
+code,
+pre,
+xmp,
+.ctx,
+.finding .body .ctx,
+.response-body,
+.evidence,
+.exploit,
+#details {
+  color: #153d52 !important;
+  background: #f7fbfd !important;
+  border-color: rgba(70,108,130,.20) !important;
+}
+.finding .body .evidence {
+  color: #075b4f !important;
+  background: #ecfaf7 !important;
+}
+.finding .body .exploit {
+  color: #714808 !important;
+  background: #fff7e4 !important;
+}
+.repo-link,
+.top-author-link,
+.author-link,
+.version {
+  color: #10283a !important;
+}
+/* V2.2.7 final text contrast lock */
+body,
+body :where(div,section,article,header,footer,main,aside,span,strong,b,p,small,label,summary,details,li,td,th,h1,h2,h3,h4,em,a,button,input,select,textarea,pre,code,xmp) {
+  color: #10283a !important;
+}
+body :where(p,small,.label,.sub,.desc,.meta,.origin,.route-url,.hint,.runtime-desc,.usage-tip,.finding .body .desc,.finding .body .recommend,.finding .body .pos,footer) {
+  color: #4d6575 !important;
+}
+body :where(h1,h2,h3,h4,strong,b,.title,.value,.path,.method,.panel-head h2,.card-block h2,.finding .body .name,.runtime-title,.target-strip strong,.empty-state strong,dialog header strong) {
+  color: #0d2435 !important;
+  font-weight: 800 !important;
+}
+body :where(button,input,select,textarea,.actions button,.finding .actions button,dialog header button,.inline-actions select,.api-actions select) {
+  color: #10283a !important;
+}
+body :where(code,pre,xmp,.ctx,.finding .body .ctx,.response-body,.evidence,.exploit,#details) {
+  color: #123f56 !important;
+  background-color: #f7fbfd !important;
+}
+body :where(.tag,.badge,.sev-badge,.conf-badge,.status,.state,.auth-check,.chip,.card.score) {
+  color: #064f46 !important;
+}
+body :where(.tag.warn,.tag.medium,.finding.medium,.route.sensitive,.usage-tip span:first-child) {
+  color: #714808 !important;
+}
+body :where(button.danger,.tag.danger,.tag.critical,.tag.high,.finding.high,.finding.critical) {
+  color: #a92d48 !important;
+}
+body :where(input::placeholder,textarea::placeholder) {
+  color: #728899 !important;
+  opacity: 1 !important;
+}
+
+/* V2.2.7 final light youthful readability pass */
+html,
+body {
+  background:
+    linear-gradient(rgba(88, 196, 210, .07) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(88, 196, 210, .07) 1px, transparent 1px),
+    linear-gradient(135deg, #fbfeff 0%, #eef9fb 48%, #f3f7ff 100%) !important;
+  background-size: 32px 32px, 32px 32px, auto !important;
+  color: #10283a !important;
+}
+.page-header,
+.card,
+.panel,
+.card-block,
+.filters,
+.toolbar,
+.target-strip,
+.runtime-control,
+.file-group,
+.finding,
+.api,
+.route,
+dialog {
+  background: rgba(255,255,255,.98) !important;
+  border-color: rgba(83,116,138,.24) !important;
+  box-shadow: 0 14px 32px rgba(69, 99, 123, .10) !important;
+}
+h1,h2,h3,h4,
+.value,
+.title,
+.path,
+.method,
+.panel-head h2,
+.card-block h2,
+.finding .body .name,
+.runtime-title,
+.target-strip strong,
+.empty-state strong {
+  color: #10283a !important;
+}
+p,small,
+.label,
+.sub,
+.desc,
+.meta,
+.origin,
+.route-url,
+.hint,
+.runtime-desc,
+.usage-tip,
+.finding .body .desc,
+.finding .body .recommend,
+.finding .body .pos,
+footer {
+  color: #536b7a !important;
+}
+.panel-head,
+dialog header,
+.file-group > .file-header,
+.api-controls,
+.method-pills,
+.empty-state,
+.evidence-empty {
+  background: #f3f9fc !important;
+  border-color: rgba(83,116,138,.22) !important;
+}
+button,
+input,
+select,
+textarea,
+.actions button,
+.finding .actions button,
+dialog header button,
+.inline-actions select,
+.api-actions select {
+  color: #10283a !important;
+  background: #ffffff !important;
+  border-color: rgba(83,116,138,.32) !important;
+}
+button.primary,
+button:not(.danger).primary {
+  color: #061d2b !important;
+  background: linear-gradient(135deg, #73e4d7, #76a9ff) !important;
+}
+button.danger,
+.tag.danger,
+.tag.critical,
+.tag.high,
+.finding.high,
+.finding.critical {
+  color: #a92d48 !important;
+  background: #fff4f7 !important;
+  border-color: rgba(196,55,86,.32) !important;
+}
+.tag,
+.badge,
+.sev-badge,
+.conf-badge,
+.status,
+.state,
+.auth-check,
+.chip,
+.card.score {
+  color: #064f46 !important;
+  background: linear-gradient(135deg, #e7fbf7, #edf6ff) !important;
+  border-color: rgba(38,156,139,.25) !important;
+}
+.tag.warn,
+.tag.medium,
+.finding.medium,
+.route.sensitive,
+.usage-tip span:first-child {
+  color: #734900 !important;
+  background: #fff1cf !important;
+  border-color: rgba(196,130,21,.34) !important;
+}
+code,pre,xmp,
+.ctx,
+.finding .body .ctx,
+.response-body,
+.evidence,
+.exploit,
+#details {
+  color: #123f56 !important;
+  background: #f7fbfd !important;
+}
+input::placeholder,
+textarea::placeholder { color: #718796 !important; opacity: 1 !important; }
+
+/* V2.2.7 footer and brand-entry clarity fix */
+.page-footer,
+footer,
+body > footer {
+  margin: 20px auto 18px !important;
+  padding: 12px 14px !important;
+  min-height: 46px !important;
+  width: min(1760px, calc(100% - 52px)) !important;
+  display: flex !important;
+  align-items: center !important;
+  justify-content: space-between !important;
+  color: #536b7a !important;
+  background: rgba(255,255,255,.96) !important;
+  border: 1px solid rgba(83,116,138,.20) !important;
+  border-radius: 16px !important;
+  box-shadow: 0 12px 26px rgba(69,99,123,.10) !important;
+}
+.page-footer span,
+.page-footer small,
+.page-footer p,
+footer span,
+footer small,
+footer p,
+footer div {
+  color: #536b7a !important;
+}
+.repo-link,
+.github-link,
+.top-author-link,
+.author-link,
+.page-footer .author-link {
+  color: #10283a !important;
+  background: rgba(255,255,255,.98) !important;
+  border: 1px solid rgba(83,116,138,.24) !important;
+  box-shadow: 0 8px 18px rgba(69,99,123,.10) !important;
+  opacity: 1 !important;
+  filter: none !important;
+}
+.repo-link svg,
+.github-link svg,
+.repo-link svg *,
+.github-link svg * {
+  color: #10283a !important;
+  fill: currentColor !important;
+  stroke: currentColor !important;
+  opacity: 1 !important;
+  filter: none !important;
+}
+.repo-link:hover,
+.github-link:hover,
+.top-author-link:hover,
+.author-link:hover {
+  color: #061d2b !important;
+  background: linear-gradient(135deg, #e7fbf7, #edf6ff) !important;
+  border-color: rgba(87,128,239,.34) !important;
+  box-shadow: 0 10px 22px rgba(87,128,239,.14) !important;
+}
+.author-link,
+.top-author-link,
+.page-footer .author-link {
+  font-weight: 900 !important;
+  color: #10283a !important;
+}

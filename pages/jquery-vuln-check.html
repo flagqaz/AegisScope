@@ -1,4 +1,4 @@
-<!DOCTYPE html>
+﻿<!DOCTYPE html>
 <html lang="zh-CN">
 <head>
     <meta charset="utf-8">
@@ -46,6 +46,130 @@
             .poc-panel { overflow: visible; }
             .candidate-list { max-height: 320px; }
         }
+    
+        /* V2.2.7 fresh visual theme */
+        :root { color-scheme: light; --line: rgba(78,132,154,.24); --green: #236c63; --yellow: #8a5a12; --red: #c43f58; --ink: #163447; --muted: #5d7788; }
+        body { background: radial-gradient(circle at 12% 8%, rgba(110,231,216,.24), transparent 30%), radial-gradient(circle at 86% 0%, rgba(91,141,255,.20), transparent 28%), linear-gradient(135deg, #f7fcff 0%, #edf8fb 50%, #f9fbff 100%); color: var(--ink); }
+        h1 { color: #123247; }
+        h2 { color: #236c63; }
+        .notice { color: #b92745; border-color: rgba(233,78,104,.32); background: rgba(255,242,245,.88); }
+        .meta, .panel, .poc-panel { color: var(--muted); border-color: var(--line); background: rgba(255,255,255,.82); box-shadow: 0 16px 38px rgba(78,132,154,.12); }
+        .meta code, .risk { color: #805313; }
+        .risk { border-color: rgba(242,173,59,.42); background: rgba(255,246,222,.92); }
+        .manual-row input, xmp { color: #214d63; border-color: rgba(78,132,154,.24); background: rgba(246,251,253,.94); }
+        button { color: #163447; border-color: rgba(78,132,154,.30); background: rgba(255,255,255,.86); box-shadow: 0 8px 20px rgba(78,132,154,.08); }
+        button:hover { color: #0f2c3e; border-color: rgba(91,141,255,.36); background: rgba(238,248,255,.96); }
+        button.secondary { color: #805313; border-color: rgba(242,173,59,.42); background: rgba(255,246,222,.92); }
+        .candidate { border-color: rgba(78,132,154,.20); background: rgba(255,255,255,.76); }
+        .candidate code { color: #214d63; }
+        .candidate small, .candidate-progress, .hint { color: var(--muted); }
+        .candidate-progress b { background: rgba(91,141,255,.14); }
+        .candidate-progress i { background: linear-gradient(90deg, #79ead9, #69a4ff); }
+        .hint.ok { color: #236c63; }
+        .hint.warn { color: #805313; }
+        .hint.bad { color: #c43f58; }
+        #verifyLog { color: #416173; }
+    
+        /* V2.2.7 jQuery page experience polish */
+        body { margin: 0; padding: 18px; display: flex; flex-direction: column; gap: 12px; }
+        h1, body > p, .notice, .grid, body > h2, #verifyLog, #div { width: min(1440px, 100%); margin-left: auto; margin-right: auto; }
+        h1 { margin-top: 0; font-size: clamp(20px, 2vw, 26px); }
+        body > p { margin-top: -6px; color: var(--muted); }
+        .notice { margin-top: 0; }
+        .grid { grid-template-columns: minmax(0, 1fr) minmax(340px, .36fr); gap: 12px; height: min(650px, 70vh); }
+        .meta { min-height: 172px; }
+        .meta > div { margin: 4px 0; }
+        .manual-row { margin-top: 12px; }
+        .poc-panel { padding: 14px; }
+        .poc-panel h2 { display: flex; align-items: center; gap: 8px; margin: 14px 0 8px; }
+        .poc-panel button { min-height: 34px; }
+        xmp { max-height: 120px; overflow: auto; }
+        .panel { min-height: 0; }
+        .candidate-list { max-height: none; }
+        .candidate { min-height: 58px; }
+        #verifyLog { min-height: 48px; padding: 12px 12px 12px 30px; border: 1px solid var(--line); border-radius: 8px; background: rgba(255,255,255,.72); }
+        #div { margin-top: 0; background: rgba(255,255,255,.66); }
+        @media (max-width: 980px) { .grid { grid-template-columns: 1fr; height: auto; } .candidate-list { max-height: 320px; } }
+    
+        /* V2.2.7 readability rescue */
+        :root { --ink:#12283a; --muted:#506b7d; --line:rgba(66,104,126,.24); --green:#154b43; --yellow:#69430d; --red:#b72f4d; }
+        body { color:#12283a !important; }
+        h1, h2 { color:#12283a !important; }
+        body > p, .candidate small, .candidate-progress, .hint { color:#506b7d !important; }
+        .notice { color:#b72f4d !important; border-color:rgba(216,63,95,.36) !important; background:#fff6f8 !important; }
+        .meta, .panel, .poc-panel, #verifyLog, #div, .candidate { color:#12283a !important; border-color:rgba(66,104,126,.24) !important; background:rgba(255,255,255,.96) !important; box-shadow:0 14px 34px rgba(65,105,130,.14) !important; }
+        .meta code, .candidate code, xmp { color:#183f55 !important; background:#f7fbfd !important; border-color:rgba(66,104,126,.18) !important; }
+        .risk, .hint.warn { color:#69430d !important; border-color:rgba(217,139,23,.42) !important; background:#fff4dc !important; }
+        .hint.ok { color:#154b43 !important; }
+        .hint.bad { color:#b72f4d !important; }
+        button, .manual-row input { color:#132b3d !important; border-color:rgba(66,104,126,.30) !important; background:#ffffff !important; }
+        button:hover { color:#0b2232 !important; border-color:rgba(79,125,243,.38) !important; background:#eef6ff !important; }
+        .candidate-progress b { background:rgba(79,125,243,.16) !important; }
+        .candidate-progress i { background:linear-gradient(90deg,#44cdbd,#68a2ff) !important; }
+    
+        /* V2.2.7 accessibility contrast audit */
+        body, body * { text-shadow:none; }
+        h1, h2 { color:#10283a !important; font-weight:800 !important; }
+        body > p, .candidate small, .candidate-progress, .hint, #verifyLog { color:#4d6575 !important; }
+        .notice { color:#a92d48 !important; background:#fff2f5 !important; border-color:rgba(196,55,86,.34) !important; }
+        .meta, .panel, .poc-panel, #verifyLog, #div, .candidate { color:#10283a !important; background:rgba(255,255,255,.98) !important; border-color:rgba(70,108,130,.24) !important; }
+        button, .manual-row input { color:#10283a !important; background:#ffffff !important; border-color:rgba(70,108,130,.34) !important; font-weight:800 !important; }
+        xmp, code, .meta code, .candidate code { color:#153d52 !important; background:#f7fbfd !important; border-color:rgba(70,108,130,.20) !important; }
+        .risk, .hint.warn { color:#714808 !important; background:#fff1cf !important; border-color:rgba(191,128,20,.36) !important; }
+        .hint.ok { color:#064f46 !important; }
+        .hint.bad { color:#a92d48 !important; }
+    
+        /* V2.2.7 final text contrast lock */
+        body, body :where(div,section,span,strong,b,p,small,label,summary,li,h1,h2,h3,em,a,button,input,select,textarea,pre,code,xmp) { color:#10283a !important; }
+        body :where(p,small,.candidate small,.candidate-progress,.hint,#verifyLog) { color:#4d6575 !important; }
+        body :where(h1,h2,strong,b) { color:#0d2435 !important; font-weight:800 !important; }
+        body :where(button,input) { color:#10283a !important; }
+        body :where(code,xmp,.meta code,.candidate code) { color:#123f56 !important; background-color:#f7fbfd !important; }
+        body :where(.risk,.hint.warn) { color:#714808 !important; }
+        body :where(.hint.ok) { color:#064f46 !important; }
+        body :where(.hint.bad,.notice) { color:#a92d48 !important; }
+    
+        /* V2.2.7 final light youthful readability pass */
+        html,
+        body {
+            background:
+                linear-gradient(rgba(88, 196, 210, .07) 1px, transparent 1px),
+                linear-gradient(90deg, rgba(88, 196, 210, .07) 1px, transparent 1px),
+                linear-gradient(135deg, #fbfeff 0%, #eef9fb 48%, #f3f7ff 100%) !important;
+            background-size: 32px 32px, 32px 32px, auto !important;
+            color: #10283a !important;
+        }
+        h1,h2,h3,strong,b { color: #10283a !important; }
+        p,small,.candidate small,.candidate-progress,.hint,#verifyLog { color: #536b7a !important; }
+        .meta,
+        .candidate,
+        .notice,
+        xmp,
+        input {
+            background: rgba(255,255,255,.98) !important;
+            border-color: rgba(83,116,138,.24) !important;
+            box-shadow: 0 12px 28px rgba(69, 99, 123, .10) !important;
+        }
+        button {
+            color: #10283a !important;
+            background: #ffffff !important;
+            border-color: rgba(83,116,138,.32) !important;
+        }
+        button:hover {
+            background: #e8f2ff !important;
+            border-color: rgba(87,128,239,.34) !important;
+        }
+        button.secondary,
+        .hint.warn,
+        .risk {
+            color: #734900 !important;
+            background: #fff1cf !important;
+            border-color: rgba(196,130,21,.34) !important;
+        }
+        code,xmp,.meta code,.candidate code {
+            color: #123f56 !important;
+            background: #f7fbfd !important;
+        }
     </style>
     <script src="../scripts/pages/jquery-vuln-check.js"></script>
 </head>
@@ -73,24 +197,24 @@
 
         <div class="poc-panel">
             <h2>PoC 1 <span id="poc1Hint" class="hint">等待版本</span></h2>
-            <button data-poc="1" data-mode="inner">Assign to innerHTML</button>
-            <button data-poc="1" data-mode="jquery">Append via .html()</button>
+            <button data-poc="1" data-mode="inner">写入 innerHTML</button>
+            <button data-poc="1" data-mode="jquery">通过 .html() 追加</button>
             <xmp id="poc1">
 <style><style /><img src=x onerror=alert('xss')>
             </xmp>
 
             <h2>PoC 2 <span id="poc2Hint" class="hint">等待版本</span></h2>
-            <button data-poc="2" data-mode="inner">Assign to innerHTML</button>
-            <button data-poc="2" data-mode="jquery">Append via .html()</button>
+            <button data-poc="2" data-mode="inner">写入 innerHTML</button>
+            <button data-poc="2" data-mode="jquery">通过 .html() 追加</button>
             <xmp id="poc2">
 <img alt="<x" title="/><img src=x onerror=alert('xss')>">
             </xmp>
 
             <h2>PoC 3 <span id="poc3Hint" class="hint">等待版本</span></h2>
-            <button data-poc="3" data-mode="inner">Assign to innerHTML</button>
-            <button data-poc="3" data-mode="jquery">Append via .html()</button>
+            <button data-poc="3" data-mode="inner">写入 innerHTML</button>
+            <button data-poc="3" data-mode="jquery">通过 .html() 追加</button>
             <xmp id="poc3">
-<option><style></option></select><img src=x onerror=alert('xss')></style>
+<option><style></option></select><img src=x onerror=alert('xss')>
             </xmp>
         </div>
     </div>
@@ -111,3 +235,5 @@
 <div id="div"></div>
 </body>
 </html>
+
+

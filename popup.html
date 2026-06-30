@@ -17,7 +17,7 @@
       <div class="mark" aria-hidden="true"><img src="icons/icon48.png" alt=""></div>
       <div class="title-copy">
         <h1>玄镜 AegisScope</h1>
-        <p>前端代码资产采集、网站嗅探、备案查询、浏览器辅助与漏洞审计工作台</p>
+        <p>授权安全测试与前端资产分析工作台</p>
       </div>
       <div class="title-badges">
         <div class="title-links">
@@ -30,29 +30,43 @@
         </div>
         <div class="title-stats">
           <button id="versionBadge" class="version" title="检查更新">
-            <span>V2.2.6</span>
+            <span>V2.2.7</span>
             <i id="updateDot" class="update-dot" hidden></i>
           </button>
           <span id="count" class="badge">0</span>
         </div>
       </div>
     </div>
-    <div class="action-grid">
-      <div class="action-row primary-actions">
-        <button id="downloadAll" title="保存代码资源或完整页面">保存</button>
-        <button id="siteSniff" title="网站技术栈、框架、CMS、库与响应头识别">网站嗅探</button>
-        <button id="beianQuery" title="当前页面备案号、公安备案号和备案链接查询">备案查询</button>
-        <button id="securityScan" title="对代码资源运行泄露扫描">泄露扫描</button>
-        <button id="vulnScan" title="源码审计与低风险接口漏扫">漏扫审计</button>
-        <button id="vueTools" title="Vue Router runtime tools">Vue 工具</button>
-      </div>
-      <div class="action-row assist-actions">
-        <button id="refresh" title="重新采集并刷新当前插件页面数据">刷新全部</button>
-        <button id="copyUnlock" title="解除当前页面复制、选择、右键菜单限制">解除复制</button>
-        <button id="webrtcGuard" title="限制 WebRTC 直连 UDP，降低真实 IP 泄漏风险">WebRTC</button>
-        <button id="uaSwitch" title="为当前标签页修改请求 User-Agent">UA修改</button>
-        <button id="charsetSwitch" title="为当前标签页修改页面编码">编码修改</button>
-        <button id="clear" class="danger" title="清空当前标签页插件记录">清空记录</button>
+    <div class="workspace-hub">
+      <div class="action-grid">
+        <section class="action-group action-group-main" aria-label="主流程">
+          <div class="action-group-title">
+            <span>主流程</span>
+            <small>采集 / 识别 / 审计</small>
+          </div>
+          <div class="action-row primary-actions">
+            <button id="downloadAll" title="保存代码资源或完整页面">保存资产</button>
+            <button id="siteSniff" title="网站技术栈、框架、CMS、库与响应头识别">网站嗅探</button>
+            <button id="beianQuery" title="当前页面备案号、公安备案号和备案链接查询">备案查询</button>
+            <button id="securityScan" title="对代码资源运行泄露扫描">泄露扫描</button>
+            <button id="vulnScan" title="源码审计与低风险接口漏扫">漏洞审计</button>
+            <button id="vueTools" title="Vue Router runtime tools">Vue 工具</button>
+          </div>
+        </section>
+        <section class="action-group action-group-tools" aria-label="浏览器辅助与全局操作">
+          <div class="action-group-title">
+            <span>工具区</span>
+            <small>刷新 / 辅助 / 清理</small>
+          </div>
+          <div class="action-row assist-actions">
+            <button id="refresh" title="重新采集并刷新当前插件页面数据">刷新全部</button>
+            <button id="copyUnlock" title="解除当前页面复制、选择、右键菜单限制">解除复制</button>
+            <button id="webrtcGuard" title="限制 WebRTC 直连 UDP，降低真实 IP 泄漏风险">WebRTC</button>
+            <button id="uaSwitch" title="为当前标签页修改请求 User-Agent">UA 修改</button>
+            <button id="charsetSwitch" title="为当前标签页修改页面编码">编码修改</button>
+            <button id="clear" class="danger" title="清空当前标签页插件记录">清空记录</button>
+          </div>
+        </section>
       </div>
     </div>
   </header>
@@ -205,7 +219,7 @@
     <section id="sniffPanel" class="sniff-panel" hidden>
       <div class="sniff-top-feature">
         <button id="fingerprintScan" class="sniff-feature-button" title="跳转到指纹扫描工作台">
-          <span>NEW</span>
+          <span>主动</span>
           <strong>指纹扫描</strong>
           <em>扫描</em>
         </button>
@@ -274,7 +288,7 @@
       <div class="mark mini" aria-hidden="true"><img src="icons/icon48.png" alt=""></div>
       <div>
         <strong>玄镜 AegisScope 使用许可与免责声明</strong>
-        <span>V2.2.6</span>
+        <span>V2.2.7</span>
       </div>
     </div>
     <div class="terms-body">
@@ -324,7 +338,7 @@
     <div class="update-body">
       <div class="update-version-row">
         <span>当前版本</span>
-        <b id="currentVersionText">V2.2.6</b>
+        <b id="currentVersionText">V2.2.7</b>
       </div>
       <div class="update-version-row">
         <span>最新版本</span>

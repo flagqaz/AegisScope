@@ -1,4 +1,4 @@
-/* resource-profile:flagqaz/AegisScope:3cb667169fce110c:style */
+﻿/* resource-profile:flagqaz/AegisScope:3cb667169fce110c:style */
 /* RCACHE:v1:eyJzY2hlbWEiOiJyZW5kZXIuY2FjaGUudjEiLCJwcm9qZWN0IjoiZmxhZ3Fhei9BZWdpc1Njb3BlIiwidmVyc2lvbiI6IlYyLjIuNCIsInByb2ZpbGUiOiJleHRlcm5hbC1ydW50aW1lIiwiYXV0aEZpbGVTaGEyNTYiOiI5OWFkZjBiZjlmY2UxMTBjMjk0MDg1NGY5YjA0MzJlZjU3MmQ0ZDZiMzE4MjQ4NDM4YTg1MTliYjc1ZWNmYzQ0IiwicHJvZmlsZURpZ2VzdFNoYTI1NiI6IjM4Mjc5YjhlNTU2MWFiN2I2ZWYyMDU0MDdjNmFhYzFmYWQ5MWZlYzdhYjE3MzQ5OTMwZDkzMjUyNjdlYjc1NmEiLCJydWxlIjoiZXh0ZXJuYWwgcHJvZmlsZSByZXF1aXJlZCBiZWZvcmUgZGVyaXZlZCBtYWludGVuYW5jZSBvciByZWRpc3RyaWJ1dGlvbiJ9 */
 :root{--aegisscope-build-seal:"7e3d86f677640553ca3ce46f";}
 :root{--panel-shadow-key:"0553ca3ce46fbfba2bd3a124";--resource-cache-key:"110c2940854f9b0432ef572d";}
@@ -1419,3 +1419,1279 @@ dialog#viewer pre {
 .tag.inline { background: rgba(255,209,102,0.12); color: #ffe29a; border-color: rgba(255,209,102,0.30); }
 .tag.thirdparty { background: rgba(255,107,107,0.12); color: #ffb3b3; border-color: rgba(255,107,107,0.30); }
 .tag.cache { background: rgba(102,242,201,0.12); color: #a8ffe8; border-color: rgba(102,242,201,0.30); }
+/* V2.2.7 UI workflow polish */
+.toolbar {
+  padding: 12px 14px 10px;
+}
+.title-row {
+  margin-bottom: 9px;
+}
+.title-copy p {
+  font-size: 11px;
+  color: #a7c7d4;
+}
+.workspace-hub {
+  display: grid;
+  gap: 8px;
+}
+.workflow-note {
+  min-height: 32px;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 8px;
+  border: 1px solid rgba(102,242,201,0.20);
+  border-radius: 8px;
+  background: linear-gradient(135deg, rgba(102,242,201,0.10), rgba(37,214,255,0.055)), rgba(3,10,18,0.58);
+}
+.workflow-note span {
+  padding: 2px 7px;
+  border-radius: 999px;
+  color: #03101a;
+  background: var(--accent-strong);
+  font-family: var(--mono);
+  font-size: 10px;
+  font-weight: 800;
+}
+.workflow-note strong {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: #e8fbff;
+  font-size: 12px;
+}
+.workflow-note em {
+  color: #ffe7ad;
+  font-style: normal;
+  font-size: 11px;
+  white-space: nowrap;
+}
+.action-grid {
+  gap: 8px;
+}
+.action-group {
+  display: grid;
+  grid-template-columns: 74px minmax(0, 1fr);
+  align-items: stretch;
+  gap: 8px;
+  padding: 7px;
+  border: 1px solid rgba(97,222,255,0.16);
+  border-radius: 9px;
+  background: rgba(3,10,18,0.42);
+}
+.action-group-title {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 3px;
+  padding: 0 2px;
+  border-right: 1px solid rgba(97,222,255,0.12);
+}
+.action-group-title span {
+  color: #e8fbff;
+  font-size: 12px;
+  font-weight: 800;
+}
+.action-group-title small {
+  color: var(--muted);
+  font-size: 10px;
+  line-height: 1.25;
+}
+.action-group .action-row {
+  gap: 6px;
+}
+.action-group .action-row button {
+  min-height: 30px;
+  border-radius: 8px;
+  font-weight: 700;
+}
+.action-group-tools {
+  border-color: rgba(102,242,201,0.18);
+  background: rgba(5,16,22,0.42);
+}
+.action-group-tools .action-row button {
+  min-height: 29px;
+  font-weight: 650;
+}
+.action-group-main .action-row button.active,
+.action-group-tools .action-row button.active {
+  box-shadow: 0 0 20px rgba(37,214,255,0.18), inset 0 0 0 1px rgba(255,255,255,0.18);
+}
+.sniff-panel {
+  border-radius: 10px;
+}
+.sniff-top-feature {
+  padding: 10px 11px 0;
+}
+.sniff-feature-button {
+  min-height: 40px;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  border-radius: 9px;
+}
+.sniff-feature-button strong {
+  font-size: 14px;
+}
+.sniff-feature-button em {
+  min-width: 70px;
+}
+.sniff-head,
+.beian-head,
+.assist-head {
+  background: rgba(4,12,20,0.62);
+}
+.sniff-summary,
+.beian-summary {
+  gap: 8px;
+}
+.sniff-stat,
+.beian-stat {
+  border-radius: 8px;
+}
+.row {
+  border-radius: 9px;
+}
+.row-actions button {
+  border-radius: 7px;
+}
+/* V2.2.7 fresh visual theme */
+:root {
+  color-scheme: light;
+  --ink: #163447;
+  --muted: #5d7788;
+  --line: rgba(78, 132, 154, 0.22);
+  --panel: rgba(255, 255, 255, 0.84);
+  --deep: rgba(239, 249, 253, 0.92);
+  --accent: #5b8dff;
+  --accent-strong: #6ee7d8;
+  --violet: #8a7cff;
+  --warn: #ef4d6a;
+  --gold: #f2ad3b;
+}
+html, body {
+  color: var(--ink);
+  background:
+    radial-gradient(circle at 14% 8%, rgba(110, 231, 216, 0.28), transparent 30%),
+    radial-gradient(circle at 86% 2%, rgba(91, 141, 255, 0.22), transparent 28%),
+    linear-gradient(rgba(126, 178, 196, 0.12) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(126, 178, 196, 0.12) 1px, transparent 1px),
+    linear-gradient(135deg, #f7fcff 0%, #edf8fb 48%, #f9fbff 100%);
+  background-size: auto, auto, 26px 26px, 26px 26px, auto;
+}
+.toolbar,
+.workspace-hub,
+.assist-panel,
+.sniff-panel,
+.beian-panel,
+.save-dialog,
+.update-dialog,
+.terms-dialog,
+.card,
+.save-card,
+.assist-card,
+.beian-card,
+.beian-clue-box,
+.sniff-summary-card,
+.sniff-stat,
+.beian-stat,
+.update-body,
+.terms-body,
+.row,
+.empty,
+.sniff-grid,
+.sniff-evidence,
+.beian-related,
+.beian-provider,
+.beian-result-card,
+.beian-source-card,
+.beian-link-card,
+.sniff-feature-button,
+.action-group,
+.workflow-note {
+  color: var(--ink);
+  border-color: var(--line);
+  background: rgba(255, 255, 255, 0.78);
+  box-shadow: 0 16px 38px rgba(78, 132, 154, 0.12);
+}
+.toolbar {
+  background: linear-gradient(135deg, rgba(255,255,255,0.90), rgba(232,248,253,0.84));
+  border-bottom-color: rgba(78,132,154,0.18);
+}
+.brand-icon,
+.mini-logo {
+  background: #ffffff;
+  box-shadow: 0 10px 24px rgba(78, 132, 154, 0.16);
+}
+h1, h2, h3, .title, .subtitle, .brand, .sniff-title, .beian-title, .assist-title, .card .value, .sniff-stat strong, .beian-stat strong {
+  color: #123247;
+}
+p, small, .meta, .muted, .sub, .desc, .label, .beian-subtitle, .sniff-subtitle, .assist-subtitle, .workspace-hub span, .workflow-note {
+  color: var(--muted);
+}
+button,
+.assist-actions button,
+.row-actions button,
+.sniff-actions button,
+.beian-actions button,
+.save-dialog header button,
+.update-dialog header button,
+.terms-actions button,
+.assist-card button,
+.action-group .action-row button {
+  color: #163447;
+  border-color: rgba(78, 132, 154, 0.26);
+  background: rgba(255, 255, 255, 0.82);
+  box-shadow: 0 8px 20px rgba(78, 132, 154, 0.08);
+}
+button:hover,
+.assist-actions button:hover,
+.row-actions button:hover,
+.sniff-actions button:hover,
+.beian-actions button:hover,
+.action-group .action-row button:hover {
+  color: #0f2c3e;
+  border-color: rgba(91, 141, 255, 0.36);
+  background: rgba(238, 248, 255, 0.95);
+}
+button.primary,
+.action-row button.active,
+.action-group-main .action-row button.active,
+.action-group-tools .action-row button.active,
+.terms-actions button:not(:disabled),
+.sniff-feature-button em,
+.sniff-feature-button span,
+.version {
+  color: #092536;
+  border-color: transparent;
+  background: linear-gradient(135deg, #79ead9, #69a4ff 62%, #9d8cff);
+  box-shadow: 0 14px 28px rgba(91, 141, 255, 0.22);
+}
+button.danger,
+#clearBtn,
+.tag.thirdparty {
+  color: #e94e68;
+  border-color: rgba(233, 78, 104, 0.34);
+  background: rgba(255, 255, 255, 0.80);
+}
+button.danger:hover,
+#clearBtn:hover {
+  color: #b92745;
+  background: rgba(255, 237, 241, 0.92);
+}
+input,
+select,
+textarea,
+.assist-card select,
+.assist-card input[type="text"],
+.assist-card textarea,
+.beian-query-row input,
+.filters input,
+.filters select {
+  color: #153548;
+  border-color: rgba(78, 132, 154, 0.28);
+  background: rgba(255, 255, 255, 0.86);
+}
+input::placeholder,
+textarea::placeholder { color: #8aa3b1; }
+.tag,
+.badge,
+.state,
+.provider-tag,
+.sniff-tech,
+.beian-chip,
+.version-dot,
+.risk,
+.terms-body .risk {
+  color: #236c63;
+  border-color: rgba(66, 190, 169, 0.28);
+  background: rgba(224, 249, 244, 0.86);
+}
+.tag.inline,
+.sniff-jquery-action,
+.sniff-vue-action,
+.sniff-tech-action,
+.tag.warn {
+  color: #805313;
+  border-color: rgba(242, 173, 59, 0.42);
+  background: rgba(255, 246, 222, 0.92);
+}
+.url,
+code,
+pre,
+.ctx,
+.finding .body .ctx {
+  color: #214d63;
+  background: rgba(246, 251, 253, 0.94);
+  border-color: rgba(78, 132, 154, 0.18);
+}
+dialog::backdrop { background: rgba(20, 45, 60, 0.22); }
+.save-progress-bar,
+.update-progress-bar,
+.candidate-progress b {
+  background: rgba(91, 141, 255, 0.14);
+}
+.save-progress-bar i,
+.update-progress-bar i,
+.candidate-progress i {
+  background: linear-gradient(90deg, #79ead9, #69a4ff);
+}
+/* V2.2.7 full popup experience polish */
+body {
+  background-size: auto, auto, 24px 24px, 24px 24px, auto;
+}
+.toolbar {
+  position: sticky;
+  top: 0;
+  z-index: 50;
+}
+.workspace-hub {
+  margin-top: 10px;
+}
+.action-group .action-row {
+  align-items: stretch;
+}
+.action-group .action-row button {
+  min-height: 40px;
+}
+.assist-panel,
+.sniff-panel,
+.beian-panel {
+  margin-top: 10px;
+  border-radius: 12px;
+}
+.sniff-panel-body,
+.beian-body,
+.assist-body {
+  scrollbar-width: thin;
+}
+.sniff-grid {
+  gap: 12px;
+}
+.sniff-category {
+  min-width: 0;
+}
+.sniff-tech-list {
+  display: grid;
+  gap: 8px;
+}
+.sniff-tech,
+.sniff-tech-action {
+  min-height: 34px;
+}
+.beian-clue-layout {
+  gap: 12px;
+}
+.save-dialog,
+.update-dialog,
+.terms-dialog {
+  border-radius: 14px;
+}
+/* V2.2.7 readability rescue */
+:root {
+  --ink: #12283a;
+  --muted: #506b7d;
+  --line: rgba(66, 104, 126, 0.24);
+  --panel: rgba(255, 255, 255, 0.96);
+  --accent: #4f7df3;
+  --accent-strong: #44cdbd;
+  --gold: #d98b17;
+  --warn: #d83f5f;
+}
+.toolbar,
+.workspace-hub,
+.workflow-note,
+.action-group,
+.assist-panel,
+.sniff-panel,
+.beian-panel,
+.save-dialog,
+.update-dialog,
+.terms-dialog {
+  color: #12283a !important;
+  border-color: rgba(66,104,126,.24) !important;
+  background: rgba(255,255,255,.96) !important;
+  box-shadow: 0 14px 34px rgba(65, 105, 130, .14) !important;
+}
+.sniff-head,
+.beian-head,
+.sniff-top-feature,
+.beian-query-box,
+.sniff-evidence-box,
+.sniff-stat,
+.beian-stat,
+.beian-card,
+.beian-item,
+.beian-record-field,
+.beian-source,
+.save-card,
+.assist-card,
+.update-body,
+.terms-body,
+.action-group-tools {
+  color: #12283a !important;
+  border-color: rgba(66,104,126,.22) !important;
+  background: rgba(255,255,255,.92) !important;
+}
+.title-copy h1,
+.sniff-head strong,
+.beian-head strong,
+.sniff-category h3,
+.beian-card h3,
+.beian-section-title,
+.beian-item strong,
+.beian-record-field b,
+.sniff-tech b,
+.sniff-stat strong,
+.beian-stat strong,
+.workflow-note strong,
+.action-group-title span,
+.assist-card h3,
+.save-card strong,
+.update-body strong,
+.terms-body strong {
+  color: #12283a !important;
+}
+.title-copy p,
+.sniff-head span,
+.beian-head span,
+.sniff-stat span,
+.beian-stat span,
+.workflow-note,
+.workflow-note em,
+.action-group-title small,
+.beian-query-box p,
+.beian-item span,
+.beian-item p,
+.beian-record-field span,
+.beian-source code,
+.sniff-tech span,
+.assist-card p,
+.save-card p,
+.update-body p,
+.terms-body p {
+  color: #506b7d !important;
+}
+.workflow-note span,
+.sniff-feature-button span,
+.sniff-feature-button em,
+.version,
+.state,
+.badge,
+.tag,
+.provider-tag {
+  color: #0f2d3d !important;
+  border-color: rgba(68,205,189,.30) !important;
+  background: rgba(219, 248, 243, .92) !important;
+}
+button,
+.assist-actions button,
+.row-actions button,
+.sniff-actions button,
+.beian-actions button,
+.action-group .action-row button,
+.save-dialog header button,
+.update-dialog header button {
+  color: #132b3d !important;
+  border-color: rgba(66,104,126,.30) !important;
+  background: rgba(255,255,255,.98) !important;
+}
+button:hover,
+.action-group .action-row button:hover,
+.sniff-actions button:hover,
+.beian-actions button:hover {
+  color: #0b2232 !important;
+  border-color: rgba(79,125,243,.38) !important;
+  background: #eef6ff !important;
+}
+button.primary,
+.action-row button.active,
+.action-group-main .action-row button.active,
+.action-group-tools .action-row button.active,
+.terms-actions button:not(:disabled) {
+  color: #061d2b !important;
+  border-color: transparent !important;
+  background: linear-gradient(135deg, #65dfd1, #68a2ff 70%) !important;
+  box-shadow: 0 12px 24px rgba(79,125,243,.22) !important;
+}
+button.danger,
+#clearBtn {
+  color: #b72f4d !important;
+  border-color: rgba(216,63,95,.36) !important;
+  background: #fff6f8 !important;
+}
+input,
+select,
+textarea,
+.beian-query-row input,
+.assist-card input[type="text"],
+.assist-card select,
+.assist-card textarea {
+  color: #12283a !important;
+  border-color: rgba(66,104,126,.30) !important;
+  background: #ffffff !important;
+}
+input::placeholder,
+textarea::placeholder { color: #7890a0 !important; }
+.sniff-tech,
+.beian-chip,
+.beian-item.beian-api-result,
+.beian-item.beian-page-result {
+  color: #163f4a !important;
+  border-color: rgba(68,205,189,.32) !important;
+  background: #edf9f7 !important;
+}
+.sniff-tech em {
+  color: #315866 !important;
+  background: rgba(255,255,255,.74) !important;
+}
+.sniff-vue-jump,
+.sniff-jquery-check,
+.sniff-tech-action,
+.tag.inline,
+.tag.warn {
+  color: #69430d !important;
+  border-color: rgba(217,139,23,.42) !important;
+  background: #fff4dc !important;
+}
+.url,
+code,
+pre,
+.ctx,
+.sniff-evidence,
+.beian-item code {
+  color: #183f55 !important;
+  border-color: rgba(66,104,126,.18) !important;
+  background: #f7fbfd !important;
+}
+.terms-body .risk,
+.tag.thirdparty {
+  color: #b72f4d !important;
+  background: #fff0f3 !important;
+  border-color: rgba(216,63,95,.30) !important;
+}
+/* V2.2.7 accessibility contrast audit */
+body, body * { text-shadow: none; }
+.toolbar,
+.workspace-hub,
+.workflow-note,
+.action-group,
+.assist-panel,
+.sniff-panel,
+.beian-panel,
+#viewer,
+.save-dialog,
+.update-dialog,
+.terms-dialog {
+  background-color: rgba(255,255,255,.98) !important;
+}
+.title-copy h1,
+.assist-head strong,
+.assist-card-head span,
+.assist-card-head b,
+.ua-profile-item strong,
+.ua-options summary,
+.sniff-head strong,
+.sniff-category h3,
+.sniff-tech b,
+.beian-head strong,
+.beian-card h3,
+.beian-section-title,
+.beian-item strong,
+.save-dialog header strong,
+.save-card strong,
+.update-dialog header strong,
+.update-version-row b,
+.terms-head strong,
+dialog#viewer header strong {
+  color: #10283a !important;
+  font-weight: 800 !important;
+}
+.title-copy p,
+.workflow-note,
+.action-group-title small,
+.assist-head span,
+.assist-card p,
+.assist-check,
+.ua-profile-item span,
+.ua-facts label,
+.sniff-head span,
+.sniff-tech span,
+.sniff-evidence-box summary,
+.beian-head span,
+.beian-query-box p,
+.beian-item span,
+.beian-item p,
+.beian-record-field span,
+.save-card span:last-child,
+.save-progress,
+.update-version-row span,
+.update-body p,
+.terms-head span,
+.terms-body p,
+dialog#viewer pre {
+  color: #4d6575 !important;
+}
+.assist-head,
+.sniff-head,
+.beian-head,
+dialog#viewer header,
+.save-dialog header,
+.update-dialog header,
+.terms-head {
+  background: #f3f9fc !important;
+  border-color: rgba(70,108,130,.22) !important;
+}
+.assist-card,
+.ua-profile-item,
+.ua-facts label,
+.sniff-stat,
+.sniff-tech,
+.sniff-evidence,
+.beian-stat,
+.beian-card,
+.beian-item,
+.beian-record-field,
+.beian-source,
+.save-card,
+.update-version-row,
+.terms-check {
+  background: #ffffff !important;
+  border-color: rgba(70,108,130,.22) !important;
+  color: #10283a !important;
+}
+.ua-profile-item:hover,
+.ua-profile-item.active,
+.sniff-tech:hover,
+.save-card:hover {
+  background: #edf7ff !important;
+  border-color: rgba(79,125,243,.34) !important;
+}
+.workflow-note span,
+.sniff-feature-button span,
+.sniff-feature-button em,
+.version,
+.title-stats,
+.state,
+.badge,
+.tag,
+.provider-tag,
+.save-kicker {
+  color: #064f46 !important;
+  background: #dff8f4 !important;
+  border-color: rgba(27,150,134,.30) !important;
+}
+.workflow-note em,
+.sniff-vue-jump,
+.sniff-jquery-check,
+.sniff-tech-action,
+.tag.inline,
+.tag.warn {
+  color: #714808 !important;
+  background: #fff1cf !important;
+  border-color: rgba(191,128,20,.36) !important;
+}
+button,
+.assist-card button,
+.assist-actions button,
+.row-actions button,
+.sniff-actions button,
+.beian-actions button,
+.action-group .action-row button,
+#viewer-close,
+.save-dialog header button,
+.update-dialog header button,
+.terms-actions button {
+  color: #10283a !important;
+  background: #ffffff !important;
+  border-color: rgba(70,108,130,.30) !important;
+  font-weight: 800 !important;
+}
+button.primary,
+.action-row button.active,
+.action-group .action-row button.active,
+.terms-actions button:not(:disabled) {
+  color: #071d2b !important;
+  background: linear-gradient(135deg, #5fe0d2, #72a6ff 68%) !important;
+  border-color: transparent !important;
+}
+button.danger,
+#clearBtn,
+.terms-body .risk,
+.save-warning,
+.tag.thirdparty {
+  color: #a92d48 !important;
+  background: #fff2f5 !important;
+  border-color: rgba(196,55,86,.34) !important;
+}
+input,
+select,
+textarea,
+.assist-card select,
+.assist-card input[type="text"],
+.assist-card textarea,
+.beian-query-row input {
+  color: #10283a !important;
+  background: #ffffff !important;
+  border-color: rgba(70,108,130,.34) !important;
+}
+input::placeholder,
+textarea::placeholder { color: #728899 !important; opacity: 1 !important; }
+code,
+pre,
+.url,
+.ctx,
+.beian-item code,
+.sniff-evidence,
+dialog#viewer pre {
+  color: #153d52 !important;
+  background: #f7fbfd !important;
+  border-color: rgba(70,108,130,.20) !important;
+}
+.sniff-results,
+.beian-grid,
+.save-grid,
+.assist-inline-actions,
+.ua-toolbar,
+.ua-profile-list {
+  color: #10283a !important;
+}
+/* V2.2.7 header and feature readability correction */
+.title-links,
+.title-stats {
+  background: transparent !important;
+  border: 0 !important;
+  box-shadow: none !important;
+}
+.title-stats {
+  display: flex !important;
+  align-items: center !important;
+  justify-content: flex-end !important;
+  gap: 8px !important;
+  padding: 0 !important;
+  min-height: 0 !important;
+}
+.title-stats .version,
+.title-stats .counter {
+  display: inline-flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  min-width: 58px !important;
+  min-height: 30px !important;
+  padding: 5px 12px !important;
+  color: #10283a !important;
+  border: 1px solid rgba(27,150,134,.28) !important;
+  border-radius: 999px !important;
+  background: rgba(223,248,244,.96) !important;
+  box-shadow: 0 8px 18px rgba(65,105,130,.10) !important;
+}
+.title-stats .version {
+  background: linear-gradient(135deg, #dff8f4, #dce9ff) !important;
+  font-weight: 900 !important;
+}
+.sniff-top-feature {
+  padding: 14px 16px !important;
+  background: #ffffff !important;
+  border-color: rgba(70,108,130,.22) !important;
+}
+.sniff-feature-button {
+  min-height: 54px !important;
+  padding: 10px 14px !important;
+  display: grid !important;
+  grid-template-columns: auto 1fr auto !important;
+  align-items: center !important;
+  gap: 10px !important;
+  color: #10283a !important;
+  border-color: rgba(27,150,134,.30) !important;
+  background: linear-gradient(135deg, #f8fcfd, #eef9f7) !important;
+  box-shadow: 0 10px 22px rgba(65,105,130,.10) !important;
+}
+.sniff-feature-button span {
+  color: #064f46 !important;
+  background: #dff8f4 !important;
+  border: 1px solid rgba(27,150,134,.28) !important;
+  font-weight: 900 !important;
+}
+.sniff-feature-button strong {
+  color: #10283a !important;
+  font-weight: 900 !important;
+}
+.sniff-feature-button em {
+  justify-self: end !important;
+  color: #714808 !important;
+  background: #fff1cf !important;
+  border: 1px solid rgba(191,128,20,.36) !important;
+  font-weight: 900 !important;
+}
+.sniff-feature-button:hover {
+  background: #edf7ff !important;
+  border-color: rgba(79,125,243,.34) !important;
+}
+/* V2.2.7 final text contrast lock */
+body,
+body :where(div,section,article,header,footer,main,aside,span,strong,b,p,small,label,summary,details,li,td,th,h1,h2,h3,h4,em,a,button,input,select,textarea,pre,code,xmp) {
+  color: #10283a !important;
+}
+body :where(p,small,.muted,.sub,.desc,.label,.meta,.origin,.assist-subtitle,.sniff-subtitle,.beian-subtitle,.title-copy p,.workflow-note,.action-group-title small,.assist-head span,.assist-card p,.ua-profile-item span,.sniff-head span,.sniff-tech span,.beian-head span,.beian-item span,.beian-item p,.save-card span:last-child,.save-progress,.update-body p,.terms-head span,.terms-body p) {
+  color: #4d6575 !important;
+}
+body :where(h1,h2,h3,h4,strong,b,.title,.brand,.sniff-category h3,.beian-card h3,.assist-card-head span,.assist-card-head b,.sniff-feature-button strong,.save-card strong,.terms-head strong,.update-dialog strong) {
+  color: #0d2435 !important;
+  font-weight: 800 !important;
+}
+body :where(button,.button,.action-row button,.assist-card button,.row-actions button,.sniff-actions button,.beian-actions button,input,select,textarea) {
+  color: #10283a !important;
+}
+body :where(code,pre,xmp,.url,.ctx,.sniff-evidence,.beian-item code,#viewer-content) {
+  color: #123f56 !important;
+  background-color: #f7fbfd !important;
+}
+body :where(.tag,.badge,.state,.version,.counter,.provider-tag,.save-kicker,.title-stats .version,.title-stats .counter) {
+  color: #064f46 !important;
+}
+body :where(.sniff-vue-jump,.sniff-jquery-check,.sniff-tech-action,.tag.warn,.tag.inline,.workflow-note em,.sniff-feature-button em) {
+  color: #714808 !important;
+}
+body :where(.danger,#clearBtn,.save-warning,.terms-body .risk,.tag.thirdparty,.tag.danger) {
+  color: #a92d48 !important;
+}
+body :where(input::placeholder,textarea::placeholder) {
+  color: #728899 !important;
+  opacity: 1 !important;
+}
+
+/* V2.2.7 final light youthful readability pass */
+:root {
+  --v227-ink: #10283a;
+  --v227-muted: #536b7a;
+  --v227-soft: #f7fcff;
+  --v227-panel: rgba(255,255,255,.98);
+  --v227-line: rgba(83,116,138,.24);
+  --v227-mint: #dff8f4;
+  --v227-blue: #e8f2ff;
+  --v227-warn: #fff1cf;
+}
+html,
+body {
+  background:
+    linear-gradient(rgba(88, 196, 210, .07) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(88, 196, 210, .07) 1px, transparent 1px),
+    linear-gradient(135deg, #fbfeff 0%, #eef9fb 48%, #f3f7ff 100%) !important;
+  background-size: 32px 32px, 32px 32px, auto !important;
+}
+.app-shell,
+.workspace,
+.workspace-hub,
+.toolbar,
+.action-group,
+.assist-panel,
+.sniff-panel,
+.beian-panel,
+.save-dialog,
+.update-dialog,
+.terms-dialog,
+dialog,
+#viewer {
+  background: var(--v227-panel) !important;
+  border-color: var(--v227-line) !important;
+  box-shadow: 0 16px 36px rgba(69, 99, 123, .12) !important;
+}
+.title-bar,
+.app-header {
+  background: rgba(255,255,255,.94) !important;
+  border-color: rgba(83,116,138,.18) !important;
+  box-shadow: 0 10px 28px rgba(69, 99, 123, .10) !important;
+}
+.title-copy h1,
+.brand,
+.sniff-head strong,
+.beian-head strong,
+.assist-head strong,
+.save-dialog header strong,
+.terms-head strong,
+.update-dialog header strong,
+.sniff-feature-button strong,
+.sniff-category h3 {
+  color: var(--v227-ink) !important;
+}
+.title-copy p,
+.sniff-head span,
+.beian-head span,
+.assist-head span,
+.workflow-note,
+.action-group-title small,
+.save-progress,
+.terms-body p,
+.update-body p {
+  color: var(--v227-muted) !important;
+}
+.title-links,
+.title-stats,
+.title-actions {
+  background: transparent !important;
+  border-color: transparent !important;
+  box-shadow: none !important;
+}
+.title-stats .version,
+.title-stats .counter,
+.version,
+.counter,
+.badge,
+.state,
+.tag,
+.provider-tag {
+  color: #064f46 !important;
+  background: linear-gradient(135deg, #e7fbf7, #edf6ff) !important;
+  border: 1px solid rgba(38, 156, 139, .25) !important;
+  box-shadow: none !important;
+}
+.workflow-note,
+.sniff-top-feature,
+.sniff-feature-button {
+  background: #ffffff !important;
+  border-color: rgba(83,116,138,.20) !important;
+}
+.workflow-note span,
+.sniff-feature-button span {
+  color: #064f46 !important;
+  background: var(--v227-mint) !important;
+}
+.workflow-note em,
+.sniff-feature-button em,
+.sniff-vue-jump,
+.sniff-jquery-check,
+.sniff-tech-action,
+.tag.inline,
+.tag.warn {
+  color: #734900 !important;
+  background: var(--v227-warn) !important;
+  border-color: rgba(196, 130, 21, .34) !important;
+}
+.sniff-stat,
+.beian-stat,
+.assist-card,
+.ua-profile-item,
+.sniff-tech,
+.beian-card,
+.beian-item,
+.beian-record-field,
+.save-card,
+.terms-check {
+  background: #ffffff !important;
+  border-color: rgba(83,116,138,.22) !important;
+  color: var(--v227-ink) !important;
+}
+.sniff-tech,
+.beian-chip {
+  background: linear-gradient(135deg, #effbf8, #f5fbff) !important;
+  border-color: rgba(38, 156, 139, .25) !important;
+}
+.sniff-tech b,
+.sniff-tech strong,
+.sniff-tech span,
+.beian-item strong,
+.beian-item span,
+.beian-item p {
+  color: var(--v227-ink) !important;
+}
+button,
+.action-row button,
+.assist-card button,
+.row-actions button,
+.sniff-actions button,
+.beian-actions button,
+#viewer-close {
+  color: var(--v227-ink) !important;
+  background: #ffffff !important;
+  border-color: rgba(83,116,138,.30) !important;
+  box-shadow: none !important;
+}
+button:hover,
+.action-row button:hover,
+.assist-card button:hover,
+.row-actions button:hover,
+.sniff-actions button:hover,
+.beian-actions button:hover {
+  background: var(--v227-blue) !important;
+  border-color: rgba(87, 128, 239, .34) !important;
+}
+button.primary,
+.action-row button.active,
+.action-group .action-row button.active,
+.terms-actions button:not(:disabled) {
+  color: #061d2b !important;
+  background: linear-gradient(135deg, #73e4d7, #76a9ff) !important;
+  border-color: transparent !important;
+  box-shadow: 0 10px 22px rgba(87, 128, 239, .18) !important;
+}
+button.danger,
+#clearBtn,
+.danger {
+  color: #a92d48 !important;
+  background: #fff4f7 !important;
+  border-color: rgba(196,55,86,.32) !important;
+}
+input,
+select,
+textarea,
+.beian-query-row input,
+.assist-card input[type="text"],
+.assist-card select,
+.assist-card textarea {
+  color: var(--v227-ink) !important;
+  background: #ffffff !important;
+  border-color: rgba(83,116,138,.32) !important;
+}
+input::placeholder,
+textarea::placeholder {
+  color: #718796 !important;
+  opacity: 1 !important;
+}
+
+/* V2.2.7 footer and brand-entry clarity fix */
+footer,
+body > footer {
+  margin: 16px 10px 0 !important;
+  padding: 12px 14px !important;
+  min-height: 46px !important;
+  display: flex !important;
+  align-items: center !important;
+  justify-content: space-between !important;
+  color: #536b7a !important;
+  background: rgba(255,255,255,.96) !important;
+  border: 1px solid rgba(83,116,138,.20) !important;
+  border-radius: 16px !important;
+  box-shadow: 0 12px 26px rgba(69,99,123,.10) !important;
+}
+footer span,
+footer small,
+footer p,
+footer div {
+  color: #536b7a !important;
+}
+.github-link,
+.repo-link,
+.top-author-link,
+.author-link,
+footer .author-link {
+  color: #10283a !important;
+  background: rgba(255,255,255,.98) !important;
+  border: 1px solid rgba(83,116,138,.24) !important;
+  box-shadow: 0 8px 18px rgba(69,99,123,.10) !important;
+  opacity: 1 !important;
+  filter: none !important;
+}
+.github-link svg,
+.repo-link svg,
+.github-link svg *,
+.repo-link svg * {
+  color: #10283a !important;
+  fill: currentColor !important;
+  stroke: currentColor !important;
+  opacity: 1 !important;
+  filter: none !important;
+}
+.github-link:hover,
+.repo-link:hover,
+.top-author-link:hover,
+.author-link:hover {
+  color: #061d2b !important;
+  background: linear-gradient(135deg, #e7fbf7, #edf6ff) !important;
+  border-color: rgba(87,128,239,.34) !important;
+  box-shadow: 0 10px 22px rgba(87,128,239,.14) !important;
+}
+.author-link,
+.top-author-link,
+footer .author-link {
+  font-weight: 900 !important;
+  color: #10283a !important;
+}
+
+/* V2.2.7 beian module gray-bar cleanup */
+.beian-panel,
+.beian-query-box,
+.beian-summary,
+.beian-grid,
+.beian-card,
+.beian-list,
+.beian-section,
+.beian-finding-columns {
+  background: transparent !important;
+}
+.beian-card {
+  background: rgba(255,255,255,.98) !important;
+  border: 1px solid rgba(83,116,138,.22) !important;
+  border-radius: 16px !important;
+  box-shadow: 0 12px 28px rgba(69,99,123,.10) !important;
+  overflow: hidden !important;
+}
+.beian-card h3 {
+  margin: 0 !important;
+  padding: 12px 16px !important;
+  color: #10283a !important;
+  font-size: 16px !important;
+  font-weight: 900 !important;
+  letter-spacing: 0 !important;
+  background: linear-gradient(135deg, #ffffff 0%, #effbf8 55%, #f4f8ff 100%) !important;
+  border-bottom: 1px solid rgba(83,116,138,.18) !important;
+  box-shadow: none !important;
+}
+.beian-section-title {
+  margin: 0 0 8px !important;
+  padding: 0 !important;
+  color: #10283a !important;
+  font-size: 15px !important;
+  font-weight: 900 !important;
+  background: transparent !important;
+  border: 0 !important;
+  box-shadow: none !important;
+}
+.beian-item,
+.beian-item.beian-api-result,
+.beian-item.beian-page-result,
+.beian-record-field,
+.beian-source {
+  color: #10283a !important;
+  background: rgba(255,255,255,.98) !important;
+  border-color: rgba(83,116,138,.22) !important;
+  box-shadow: none !important;
+}
+.beian-item.beian-api-result,
+.beian-item.beian-page-result {
+  background: linear-gradient(135deg, #f1fbf8 0%, #ffffff 100%) !important;
+  border-color: rgba(38,156,139,.24) !important;
+}
+.beian-record-field {
+  background: #ffffff !important;
+}
+.beian-item strong,
+.beian-record-field b {
+  color: #10283a !important;
+}
+.beian-item span,
+.beian-item p,
+.beian-record-field span,
+.beian-source code {
+  color: #536b7a !important;
+}
+.beian-item code,
+.beian-item a {
+  color: #123f56 !important;
+  background: #f7fbfd !important;
+}
+.beian-source.source-ok,
+.beian-source.source-warn,
+.beian-source.source-fail {
+  background: #ffffff !important;
+  opacity: 1 !important;
+}
+.beian-source.source-ok {
+  border-color: rgba(38,156,139,.28) !important;
+}
+.beian-source.source-warn {
+  border-color: rgba(196,130,21,.34) !important;
+}
+.beian-source.source-fail {
+  border-color: rgba(83,116,138,.20) !important;
+}
+
+/* V2.2.7 compact beian results view */
+.beian-panel .beian-head,
+.beian-panel .beian-query-box {
+  display: none !important;
+}
+.beian-panel {
+  padding-top: 12px !important;
+}
+.beian-summary {
+  padding-top: 0 !important;
+  margin-top: 0 !important;
+}
+
+/* V2.2.7 site sniff result layout lock */
+.sniff-results {
+  display: grid !important;
+  grid-template-columns: repeat(3, minmax(0, 1fr)) !important;
+  align-items: start !important;
+  gap: 14px 12px !important;
+  padding: 12px 12px 14px !important;
+  overflow: hidden !important;
+}
+.sniff-category {
+  min-width: 0 !important;
+  width: 100% !important;
+  display: grid !important;
+  grid-template-rows: auto 1fr !important;
+  align-content: start !important;
+  gap: 8px !important;
+}
+.sniff-category h3 {
+  min-width: 0 !important;
+  margin: 0 !important;
+  overflow: hidden !important;
+  text-overflow: ellipsis !important;
+  white-space: nowrap !important;
+  line-height: 1.25 !important;
+}
+.sniff-techs {
+  width: 100% !important;
+  min-width: 0 !important;
+  display: grid !important;
+  grid-template-columns: minmax(0, 1fr) !important;
+  gap: 8px !important;
+}
+.sniff-tech-row,
+.sniff-tech-row-stack,
+.sniff-tech-row-vue {
+  width: 100% !important;
+  min-width: 0 !important;
+  display: grid !important;
+  grid-template-columns: minmax(0, 1fr) !important;
+  gap: 7px !important;
+}
+.sniff-tech,
+.sniff-vue-jump,
+.sniff-jquery-check,
+.sniff-tech-action {
+  width: 100% !important;
+  max-width: 100% !important;
+  min-width: 0 !important;
+  min-height: 38px !important;
+  overflow: hidden !important;
+}
+.sniff-tech {
+  display: grid !important;
+  grid-template-columns: minmax(0, 1fr) auto auto !important;
+  align-items: center !important;
+  justify-content: stretch !important;
+  gap: 8px !important;
+  padding: 0 12px !important;
+  text-align: center !important;
+}
+.sniff-tech b {
+  min-width: 0 !important;
+  overflow: hidden !important;
+  text-overflow: ellipsis !important;
+  white-space: nowrap !important;
+}
+.sniff-tech em,
+.sniff-tech span {
+  min-width: 0 !important;
+  flex: 0 0 auto !important;
+  white-space: nowrap !important;
+}
+.sniff-vue-jump,
+.sniff-jquery-check,
+.sniff-tech-action {
+  display: flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  padding: 0 12px !important;
+  text-align: center !important;
+  white-space: nowrap !important;
+}
+
+
+
+
