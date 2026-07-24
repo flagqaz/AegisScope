@@ -297,9 +297,9 @@ UA 修改：用于快速切换当前页面 User-Agent。内置 66 个常用 UA�
 
 <a href="https://www.star-history.com/?repos=flagqaz%2FAegisScope&type=date&legend=top-left">
  <picture>
-   <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/chart?repos=flagqaz/AegisScope&type=date&theme=dark&legend=top-left" />
-   <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/chart?repos=flagqaz/AegisScope&type=date&legend=top-left" />
-   <img alt="Star History Chart" src="https://api.star-history.com/chart?repos=flagqaz/AegisScope&type=date&legend=top-left" />
+   <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/chart?repos=flagqaz/AegisScope&type=date&theme=dark&legend=top-left&sealed_token=ukw6POoiHFN_phcFQSJ9x0cbe4aQUm6E7q5OCr_QJBk5iGzBFVxd-ky70-N_8JjC-yPYiRISap_i8vTFLEq0BCIblFJVAwG1v49LdnqYwpFr-Gf8Ikxa3w" />
+   <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/chart?repos=flagqaz/AegisScope&type=date&legend=top-left&sealed_token=ukw6POoiHFN_phcFQSJ9x0cbe4aQUm6E7q5OCr_QJBk5iGzBFVxd-ky70-N_8JjC-yPYiRISap_i8vTFLEq0BCIblFJVAwG1v49LdnqYwpFr-Gf8Ikxa3w" />
+   <img alt="Star History Chart" src="https://api.star-history.com/chart?repos=flagqaz/AegisScope&type=date&legend=top-left&sealed_token=ukw6POoiHFN_phcFQSJ9x0cbe4aQUm6E7q5OCr_QJBk5iGzBFVxd-ky70-N_8JjC-yPYiRISap_i8vTFLEq0BCIblFJVAwG1v49LdnqYwpFr-Gf8Ikxa3w" />
  </picture>
 </a>
 
