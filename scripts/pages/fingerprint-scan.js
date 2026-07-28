@@ -45,7 +45,8 @@ const FINGERPRINT_ANALYZE_BATCH_SIZE = 8;
 const FINGERPRINT_MAX_TEXT_BODY = 320000;
 const FINGERPRINT_RULE_YIELD_INTERVAL = 900;
 const FINGERPRINT_MAX_SCAN_URLS = 56;
-const FINGERPRINT_MAX_RESOURCE_URLS = 24;
+const FINGERPRINT_MAX_RESOURCE_URLS = 14;
+const FINGERPRINT_MAX_RESPONSE_BYTES = 2 * 1024 * 1024;
 let preparedFingerprintRules = null;
 
 init();
@@ -279,23 +280,9 @@ function buildScanUrls(observed) {
   };
   add(state.baseUrl);
   add(state.origin + '/');
-  for (const icon of observed.page?.iconUrls || []) add(icon);
+  for (const icon of (observed.page?.iconUrls || []).slice(0, 6)) add(icon);
   add(state.origin + '/favicon.ico');
-  [
-    '/login/Login.jsp?logintype=1',
-    '/wui/index.html#/?logintype=1',
-    '/wui/common/css/w7OVFont.css',
-    '/theme/ecology8/jquery/js/zdialog_wev8.js',
-    '/ecology8/lang/weaver_lang_7_wev8.js',
-    '/js/ecology8/lang/weaver_lang_7_wev8.js'
-  ].forEach((path) => add(state.origin + path));
-  const probeUrls = [];
-  for (const rule of window.AEGISSCOPE_FINGERPRINT_RULES || []) {
-    for (const path of rule.probePaths || []) {
-      try { probeUrls.push(new URL(path, state.origin).href); } catch {}
-    }
-  }
-  for (const url of uniqueList(probeUrls).slice(0, 24)) add(url);
+
   const resourceUrls = [];
   for (const url of observed.page?.scripts || []) resourceUrls.push(url);
   for (const url of observed.page?.links || []) resourceUrls.push(url);
@@ -304,7 +291,55 @@ function buildScanUrls(observed) {
     if (/\.(?:js|css)(?:[?#]|$)/i.test(url) || /(?:favicon|apple-touch-icon|icon|logo)[^/?#]*\.(?:ico|png|svg|webp)(?:[?#]|$)/i.test(url)) resourceUrls.push(url);
   }
   for (const url of uniqueList(resourceUrls).slice(0, FINGERPRINT_MAX_RESOURCE_URLS)) add(url);
+
+  const passiveText = [
+    observed.page?.title || '',
+    observed.page?.html || '',
+    ...(observed.page?.scripts || []),
+    ...(observed.page?.links || []),
+    ...(observed.resources || []).map((item) => typeof item === 'string' ? item : item?.url || item?.name || '')
+  ].join('\n').toLowerCase().slice(0, 700000);
+  const probeEntries = [];
+  for (const rule of window.AEGISSCOPE_FINGERPRINT_RULES || []) {
+    for (const path of rule.probePaths || []) {
+      try {
+        probeEntries.push({
+          url: new URL(path, state.origin).href,
+          priority: fingerprintProbePriority(rule, passiveText)
+        });
+      } catch {}
+    }
+  }
+  if (/(?:ecology|weaver|泛微|wui\/|login\/login\.jsp)/i.test(passiveText)) {
+    for (const path of [
+      '/login/Login.jsp?logintype=1',
+      '/wui/index.html#/?logintype=1',
+      '/wui/common/css/w7OVFont.css',
+      '/theme/ecology8/jquery/js/zdialog_wev8.js',
+      '/ecology8/lang/weaver_lang_7_wev8.js',
+      '/js/ecology8/lang/weaver_lang_7_wev8.js'
+    ]) {
+      probeEntries.push({ url: new URL(path, state.origin).href, priority: 100 });
+    }
+  }
+  probeEntries.sort((a, b) => b.priority - a.priority);
+  for (const entry of probeEntries) add(entry.url);
   return Array.from(urls).slice(0, FINGERPRINT_MAX_SCAN_URLS);
+}
+
+function fingerprintProbePriority(rule, passiveText) {
+  let score = 0;
+  const tokens = [
+    rule?.name,
+    rule?.id,
+    ...(rule?.matchers || []).map((matcher) => matcher?.contains)
+  ]
+    .map((item) => String(item || '').trim().toLowerCase())
+    .filter((item) => item.length >= 4 && item.length <= 120);
+  for (const token of tokens.slice(0, 20)) {
+    if (passiveText.includes(token)) score += Math.min(40, 8 + token.length);
+  }
+  return score;
 }
 
 function uniqueList(items) {
@@ -333,7 +368,7 @@ async function fetchFingerprintUrl(url) {
       headers: { 'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8' }
     });
     const type = response.headers.get('content-type') || '';
-    const bytes = new Uint8Array(await response.arrayBuffer());
+    const bytes = await readResponseBytesLimited(response, FINGERPRINT_MAX_RESPONSE_BYTES);
     const isText = /text|json|xml|javascript|html|css|svg/i.test(type) || bytes.length < 1024 * 1024;
     const body = isText ? decodeBytes(bytes, type).slice(0, FINGERPRINT_MAX_TEXT_BODY) : '';
     const headers = {};
@@ -373,6 +408,37 @@ async function fetchFingerprintUrl(url) {
     clearTimeout(timer);
     if (state.controller === controller) state.controller = null;
   }
+}
+
+async function readResponseBytesLimited(response, maxBytes) {
+  const reader = response.body?.getReader?.();
+  if (!reader) {
+    const bytes = new Uint8Array(await response.arrayBuffer());
+    return bytes.byteLength > maxBytes ? bytes.subarray(0, maxBytes) : bytes;
+  }
+  const chunks = [];
+  let total = 0;
+  try {
+    while (total < maxBytes) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      const remaining = maxBytes - total;
+      const chunk = value.byteLength > remaining ? value.subarray(0, remaining) : value;
+      chunks.push(chunk);
+      total += chunk.byteLength;
+      if (value.byteLength > remaining) break;
+    }
+    if (total >= maxBytes) await reader.cancel().catch(() => {});
+  } finally {
+    try { reader.releaseLock(); } catch {}
+  }
+  const merged = new Uint8Array(total);
+  let offset = 0;
+  for (const chunk of chunks) {
+    merged.set(chunk, offset);
+    offset += chunk.byteLength;
+  }
+  return merged;
 }
 
 async function analyzeResponseBatch(responses) {
@@ -775,7 +841,11 @@ async function exportMarkdown() {
 async function downloadText(filename, text, type) {
   const blob = new Blob([text], { type });
   const url = URL.createObjectURL(blob);
-  await chrome.downloads.download({ url, filename: `js-extractor/${filename}`, saveAs: true });
+  try {
+    await chrome.downloads.download({ url, filename: `js-extractor/${filename}`, saveAs: true });
+  } finally {
+    setTimeout(() => URL.revokeObjectURL(url), 1500);
+  }
 }
 
 function setScanState(title, progress) {

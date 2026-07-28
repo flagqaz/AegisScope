@@ -9,6 +9,9 @@ try { candidates = JSON.parse(params.get('candidates') || '[]'); } catch {}
 
 const frame = document.getElementById('checkFrame');
 const sourceCache = new Map();
+const JQUERY_SOURCE_MAX_BYTES = 4 * 1024 * 1024;
+const JQUERY_SOURCE_CACHE_MAX_BYTES = 16 * 1024 * 1024;
+const JQUERY_SOURCE_CACHE_MAX_ITEMS = 8;
 const observedCandidates = uniqueJqueryCandidates([jquerySrc, ...(Array.isArray(candidates) ? candidates : [])]).slice(0, 24);
 const observedCandidateSet = new Set(observedCandidates);
 const siblingCandidates = uniqueJqueryCandidates(buildJquerySiblingCandidates(observedCandidates))
@@ -140,7 +143,21 @@ async function loadManualJquery(src) {
 function rememberSuccessfulSource(src, result) {
   if (!firstSuccessfulSrc) firstSuccessfulSrc = src;
   postToFrame({ type: 'LOAD_JQUERY_CANDIDATE_OK', src });
-  if (result?.code && !sourceCache.has(src)) sourceCache.set(src, { code: result.code, contentType: result.contentType });
+  if (result?.code && !sourceCache.has(src)) cacheJquerySource(src, result.code, result.contentType);
+}
+
+function cacheJquerySource(src, code, contentType = '') {
+  if (!src || !code) return;
+  sourceCache.delete(src);
+  sourceCache.set(src, { code, contentType });
+  let totalBytes = 0;
+  for (const item of sourceCache.values()) totalBytes += String(item?.code || '').length;
+  while (sourceCache.size > JQUERY_SOURCE_CACHE_MAX_ITEMS || totalBytes > JQUERY_SOURCE_CACHE_MAX_BYTES) {
+    const oldest = sourceCache.keys().next().value;
+    if (!oldest || oldest === src && sourceCache.size === 1) break;
+    totalBytes -= String(sourceCache.get(oldest)?.code || '').length;
+    sourceCache.delete(oldest);
+  }
 }
 
 function useFallbackSource() {
@@ -216,22 +233,25 @@ async function fetchJquerySourceOnce(src, timeoutMs) {
       cache: 'reload',
       signal: controller.signal
     });
-    clearTimeout(timer);
-    if (!response.ok) throw new Error(`HTTP ${response.status}`);
+    if (!response.ok) {
+      await response.body?.cancel?.().catch(() => {});
+      throw new Error(`HTTP ${response.status}`);
+    }
     const contentType = response.headers.get('content-type') || '';
-    const code = await response.text();
+    const code = await readResponseSample(response, JQUERY_SOURCE_MAX_BYTES);
     if (!looksLikeJqueryCore(code, src)) {
       const typeHint = contentType ? `，Content-Type: ${contentType}` : '';
       throw new Error(`响应内容不像 jQuery 核心库${typeHint}`);
     }
-    sourceCache.set(src, { code, contentType });
+    cacheJquerySource(src, code, contentType);
     return { ok: true, src, code, contentType, cached: false };
   } catch (err) {
-    clearTimeout(timer);
     const error = err?.name === 'AbortError'
       ? `请求超过 ${Math.round((timeoutMs || 10000) / 1000)} 秒未完成。`
       : err.message || String(err);
     return { ok: false, src, error };
+  } finally {
+    clearTimeout(timer);
   }
 }
 
@@ -245,7 +265,10 @@ async function probeJqueryCandidateOnce(src, timeoutMs) {
       cache: 'reload',
       signal: controller.signal
     });
-    if (!response.ok) throw new Error(`HTTP ${response.status}`);
+    if (!response.ok) {
+      await response.body?.cancel?.().catch(() => {});
+      throw new Error(`HTTP ${response.status}`);
+    }
     const contentType = response.headers.get('content-type') || '';
     const sample = await readResponseSample(response, 180000);
     clearTimeout(timer);
@@ -283,12 +306,15 @@ async function requestJqueryCandidatePresence(src, method, timeoutMs) {
     });
     clearTimeout(timer);
     if (!response.ok && response.status !== 206) {
+      await response.body?.cancel?.().catch(() => {});
       return { ok: false, src, status: response.status, error: `HTTP ${response.status}` };
     }
     const contentType = response.headers.get('content-type') || '';
     if (contentType && !/javascript|ecmascript|text\/plain|application\/octet-stream/i.test(contentType)) {
+      await response.body?.cancel?.().catch(() => {});
       return { ok: false, src, status: response.status, error: `Content-Type ${contentType}` };
     }
+    await response.body?.cancel?.().catch(() => {});
     return { ok: true, src, contentType, cached: false, presenceOnly: true };
   } catch (err) {
     clearTimeout(timer);

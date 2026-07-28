@@ -748,6 +748,7 @@
     state.rescanTimer = window.setInterval(() => {
       if (!state.enabled) return;
       const run = () => {
+        if (!state.enabled) return;
         scanRoot(document.documentElement || document, 6000);
         neutralizeBlockingOverlays();
       };
@@ -793,6 +794,7 @@
   function disable() {
     state.enabled = false;
     setAutoEnabled(false);
+    removeListeners();
     restorePreventDefault();
     restoreEventFlow();
     stopRescanTimer();
@@ -844,8 +846,9 @@
     }
   };
 
-  installListeners();
-  document.addEventListener('DOMContentLoaded', installListeners, { once: true, capture: true });
-  window.addEventListener('load', installListeners, { once: true, capture: true });
-  if (getAutoEnabled()) enable({ aggressive: true, persist: true });
+  if (getAutoEnabled()) {
+    enable({ aggressive: true, persist: true });
+    document.addEventListener('DOMContentLoaded', installListeners, { once: true, capture: true });
+    window.addEventListener('load', installListeners, { once: true, capture: true });
+  }
 })();

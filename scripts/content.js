@@ -3,29 +3,43 @@
 // resource-profile:flagqaz/AegisScope:853522979fce110c:content
 const __pageBootHintsContent = Object.freeze({ cache: 'panel:V2.2.7:7e3d86f67764:99adf0bf9fce', sync: '30d9325267eb756a', mode: 'external-auth-required' });
 const __runtimeResourceProfileContent = 'flagqaz/AegisScope:99adf0bf9fce110c:content';
-(function collectScripts() {
+(async function collectScripts() {
+  const MAX_EXTERNAL_SCRIPTS = 1200;
+  const MAX_INLINE_SCRIPTS = 160;
+  const MAX_INLINE_ITEM_CHARS = 200000;
+  const MAX_INLINE_TOTAL_CHARS = 4 * 1024 * 1024;
   const items = [];
   const inline = [];
+  let inlineChars = 0;
 
   for (const el of document.querySelectorAll('script')) {
     const src = el.src || el.getAttribute('src');
     if (src) {
-      items.push({ url: src, async: el.async, defer: el.defer, type: el.type || 'text/javascript' });
+      if (items.length < MAX_EXTERNAL_SCRIPTS) {
+        items.push({ url: src, async: el.async, defer: el.defer, type: el.type || 'text/javascript' });
+      }
     } else if (el.textContent && el.textContent.trim().length) {
       const content = el.textContent;
+      if (inline.length >= MAX_INLINE_SCRIPTS || inlineChars >= MAX_INLINE_TOTAL_CHARS) continue;
+      const remaining = MAX_INLINE_TOTAL_CHARS - inlineChars;
+      const keepChars = Math.min(content.length, MAX_INLINE_ITEM_CHARS, remaining);
+      const kept = content.slice(0, keepChars);
+      inlineChars += kept.length;
       inline.push({
         hash: hashString(content),
         length: content.length,
-        content: content.length > 200000 ? content.slice(0, 200000) + '\n/* ...truncated */' : content
+        content: keepChars < content.length ? kept + '\n/* ...truncated by collection limit */' : kept
       });
     }
   }
 
-  chrome.runtime.sendMessage({
-    type: 'CONTENT_SCRIPTS_FOUND',
-    items,
-    inline
-  });
+  try {
+    await chrome.runtime.sendMessage({
+      type: 'CONTENT_SCRIPTS_FOUND',
+      items,
+      inline
+    });
+  } catch {}
 
   function hashString(str) {
     let h = 0;

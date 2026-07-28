@@ -135,6 +135,9 @@ let copyUnlockState = { enabled: false, hostEnabled: false, host: '', options: {
 let webrtcGuardState = { enabled: false, config: { policy: 'disable_non_proxied_udp', strongBlock: false }, currentPolicy: '', apiSupported: false, registered: false };
 let uaSimpleState = { config: null, profiles: [], selectedId: '' };
 let sniffExtendedRulesLoadPromise = null;
+let sniffRunningKey = '';
+let sniffRunSeq = 0;
+let sniffDefaultStartPending = false;
 const UA_FALLBACK_PROFILES = window.AEGISSCOPE_UA_FALLBACK_PROFILES || [];
 let updateState = {
   checked: false,
@@ -146,15 +149,24 @@ let updateState = {
 };
 const beianApiCache = new Map();
 const downloadFetchCache = new Map();
+let downloadFetchCacheBytes = 0;
+const DOWNLOAD_FETCH_CACHE_MAX_BYTES = 64 * 1024 * 1024;
+const DOWNLOAD_RESOURCE_MAX_BYTES = 16 * 1024 * 1024;
 const TERMS_ACCEPTED_KEY = 'aegisscope_terms_accepted_v1';
 const SNIFF_REGEX_CACHE = new Map();
+const SNIFF_REGEX_CACHE_LIMIT = 8192;
 const SNIFF_MAX_EVIDENCE_PER_RULE = 24;
+const SNIFF_ANALYZE_SLICE_MS = 7;
 const SNIFF_STRONG_SOURCES = new Set(['headers', 'cookies', 'meta', 'globals', 'vueRuntime', 'jqueryRuntime']);
 const SNIFF_MEDIUM_SOURCES = new Set(['scriptSrc', 'resourceUrl', 'url', 'htmlAttr', 'bodyAttr']);
 const SNIFF_RESULT_CACHE_TTL = 10 * 60 * 1000;
+const SNIFF_RESULT_CACHE_STORAGE_KEY = 'aegisscope_sniff_result_cache_v1';
+const SNIFF_PERSISTED_CACHE_LIMIT = 6;
 const BEIAN_API_CACHE_TTL = 24 * 60 * 60 * 1000;
 const BEIAN_API_CACHE_PREFIX = 'aegisscope_beian_api_cache_';
+const BEIAN_PERSISTED_CACHE_LIMIT = 80;
 let sniffPreparedRuleCache = null;
+let sniffSignalKeyCache = null;
 const sniffResultCache = new Map();
 
 bootstrap().catch((err) => setStatus(`初始化失败: ${err.message}`));
@@ -206,8 +218,10 @@ async function init() {
   currentTabId = tab.id;
   try { currentTabHost = new URL(tab.url).host; } catch { currentTabHost = ''; }
 
-  await scanPage();
-  await loadScripts();
+  await restorePersistedSniffCache();
+  scanPage()
+    .then(() => loadScripts())
+    .catch((err) => setStatus(`代码资产采集失败: ${err?.message || String(err)}`));
 
   els.refresh.addEventListener('click', () => runUiActionOnce('refresh', refreshAll));
   els.downloadAll.addEventListener('click', () => {
@@ -220,6 +234,7 @@ async function init() {
   els.beianQuery.addEventListener('click', () => runUiActionOnce('beian-query', openBeianQuery));
   els.fingerprintScan.addEventListener('click', () => {
     runUiActionOnce('fingerprint-scan', () => {
+      cancelSniffWork();
       setActiveActionButton(els.siteSniff);
       return openFingerprintScan();
     });
@@ -247,9 +262,13 @@ async function init() {
   });
   els.sniffResults.addEventListener('click', (event) => {
     const vueButton = event.target.closest('[data-action="vue-tools"]');
-    if (vueButton) openVueTools();
+    if (vueButton) {
+      cancelSniffWork();
+      openVueTools();
+    }
     const jqueryButton = event.target.closest('[data-action="jquery-vuln-check"]');
     if (jqueryButton) {
+      cancelSniffWork();
       let candidates = [];
       try { candidates = JSON.parse(jqueryButton.dataset.jqueryCandidates || '[]'); } catch {}
       openJqueryVulnCheck(jqueryButton.dataset.version || '', jqueryButton.dataset.jquerySrc || '', candidates);
@@ -352,7 +371,6 @@ async function init() {
   els.viewerClose.addEventListener('click', () => els.viewer.close());
   checkForUpdates().catch(() => {});
 
-  scheduleSniffExtendedRulesLoad();
   scheduleDefaultSiteSniff();
 }
 
@@ -368,18 +386,23 @@ function runUiActionOnce(key, action, cooldown = 320) {
   }
   const release = () => setTimeout(() => uiActionLocks.delete(key), cooldown);
   if (result && typeof result.finally === 'function') {
-    result.finally(release);
+    Promise.resolve(result).then(release, release);
   } else {
     release();
   }
 }
 
 function scheduleDefaultSiteSniff() {
-  const run = () => runUiActionOnce('site-sniff', () => openSiteSniff({ active: true }));
-  if ('requestAnimationFrame' in window) {
-    requestAnimationFrame(() => setTimeout(run, 0));
+  sniffDefaultStartPending = true;
+  const run = () => {
+    if (!sniffDefaultStartPending || activeMainView !== 'sniff') return;
+    sniffDefaultStartPending = false;
+    runUiActionOnce('site-sniff', () => openSiteSniff({ active: true }));
+  };
+  if ('requestIdleCallback' in window) {
+    requestIdleCallback(run, { timeout: 350 });
   } else {
-    setTimeout(run, 0);
+    setTimeout(run, 80);
   }
 }
 
@@ -388,6 +411,10 @@ async function openProjectHome() {
 }
 
 function setActiveActionButton(activeButton) {
+  if (activeButton !== els.siteSniff) {
+    sniffDefaultStartPending = false;
+    cancelSniffWork();
+  }
   [
     els.refresh,
     els.downloadAll,
@@ -404,6 +431,11 @@ function setActiveActionButton(activeButton) {
   ].forEach((button) => {
     if (button) button.classList.toggle('active', button === activeButton);
   });
+}
+
+function cancelSniffWork() {
+  sniffRunSeq += 1;
+  sniffRunningKey = '';
 }
 
 function openAssistPanel(section) {
@@ -1078,21 +1110,21 @@ async function fetchLatestAegisScopeVersion() {
 }
 
 async function fetchGithubJson(url) {
-  const response = await fetch(url, {
+  const { response, data } = await fetchBytesLimited(url, {
     cache: 'no-store',
     headers: { Accept: 'application/vnd.github+json' }
-  });
+  }, 8000, 2 * 1024 * 1024);
   if (!response.ok) {
     if (response.status === 404) return null;
     throw new Error(`GitHub 检查失败 HTTP ${response.status}`);
   }
-  return response.json();
+  return JSON.parse(new TextDecoder('utf-8').decode(data));
 }
 
 async function fetchGithubText(url) {
-  const response = await fetch(url, { cache: 'no-store' });
+  const { response, data } = await fetchBytesLimited(url, { cache: 'no-store' }, 8000, 2 * 1024 * 1024);
   if (!response.ok) throw new Error(`GitHub README 检查失败 HTTP ${response.status}`);
-  return response.text();
+  return new TextDecoder('utf-8').decode(data);
 }
 
 function updateVersionDisplay() {
@@ -1266,12 +1298,19 @@ function getFilenameFromUrl(url) {
   }
 }
 
+async function downloadBlob(blob, options) {
+  const url = URL.createObjectURL(blob);
+  try {
+    return await chrome.downloads.download({ ...options, url });
+  } finally {
+    setTimeout(() => URL.revokeObjectURL(url), 1500);
+  }
+}
+
 async function downloadOne(s) {
   if (s.inline) {
     const blob = new Blob([s.content || ''], { type: 'application/javascript' });
-    const url = URL.createObjectURL(blob);
-    await chrome.downloads.download({
-      url,
+    await downloadBlob(blob, {
       filename: `js-extractor/${currentTabHost || 'inline'}/inline-${s.url.replace('inline:', '')}.js`,
       saveAs: false
     });
@@ -1286,6 +1325,7 @@ async function downloadOne(s) {
 
 async function downloadAll() {
   downloadFetchCache.clear();
+  downloadFetchCacheBytes = 0;
   setSaveProgress('JS 保存：正在收集页面代码...');
   setStatus('正在收集页面代码...');
   await scanPage();
@@ -1369,9 +1409,7 @@ async function downloadAll() {
   setSaveProgress(`JS 保存：正在生成 ZIP，${files.length} 个文件...`);
   setStatus(`正在生成 ZIP，${files.length} 个文件...`);
   const zipBlob = createZip(files);
-  const url = URL.createObjectURL(zipBlob);
-  await chrome.downloads.download({
-    url,
+  await downloadBlob(zipBlob, {
     filename: `js-extractor/${safeName(host)}-code-${Date.now()}.zip`,
     saveAs: true
   });
@@ -1386,6 +1424,7 @@ function openSaveDialog() {
 
 async function saveSingleHtml() {
   downloadFetchCache.clear();
+  downloadFetchCacheBytes = 0;
   setSaveProgress('HTML 保存：正在读取当前页面...');
   setStatus('正在生成单文件 HTML...');
   const snapshot = await getPageSnapshot();
@@ -1399,10 +1438,8 @@ async function saveSingleHtml() {
 
   const result = await buildStandaloneHtmlDocument(snapshot, setSaveProgress);
   const blob = new Blob([result.html], { type: 'text/html;charset=utf-8' });
-  const url = URL.createObjectURL(blob);
   setSaveProgress('HTML 保存：正在触发下载...');
-  await chrome.downloads.download({
-    url,
+  await downloadBlob(blob, {
     filename: `js-extractor/${safeName(host)}-page-${Date.now()}.html`,
     saveAs: true
   });
@@ -1528,10 +1565,11 @@ async function fetchBinaryForStandaloneHtml(url, maxBytes) {
   try {
     sameOrigin = currentTabHost && new URL(url).host === currentTabHost;
   } catch { /* ignore */ }
-  const res = await fetch(url, { credentials: sameOrigin ? 'include' : 'omit', cache: 'force-cache' });
+  const { response: res, data } = await fetchBytesLimited(url, {
+    credentials: sameOrigin ? 'include' : 'omit',
+    cache: 'force-cache'
+  }, 12000, maxBytes);
   if (!res.ok) throw new Error(`HTTP ${res.status}`);
-  const data = new Uint8Array(await res.arrayBuffer());
-  if (data.length > maxBytes) throw new Error('resource too large');
   return { data, type: (res.headers.get('content-type') || '').split(';')[0] };
 }
 
@@ -1679,17 +1717,22 @@ async function fetchCodeResource(url) {
   try {
     sameOrigin = currentTabHost && new URL(url).host === currentTabHost;
   } catch { /* ignore */ }
-  const res = await fetch(url, { credentials: sameOrigin ? 'include' : 'omit', cache: 'force-cache' });
+  const { response: res, data } = await fetchBytesLimited(url, {
+    credentials: sameOrigin ? 'include' : 'omit',
+    cache: 'force-cache'
+  }, 12000, DOWNLOAD_RESOURCE_MAX_BYTES);
   if (!res.ok) throw new Error(`HTTP ${res.status}`);
-  const data = new Uint8Array(await res.arrayBuffer());
   let text = '';
   if (data.length <= 8 * 1024 * 1024) {
     try { text = new TextDecoder('utf-8').decode(data); } catch { text = ''; }
   }
   const item = { data, text };
   downloadFetchCache.set(url, item);
-  if (downloadFetchCache.size > 800) {
+  downloadFetchCacheBytes += data.byteLength;
+  while (downloadFetchCache.size > 800 || downloadFetchCacheBytes > DOWNLOAD_FETCH_CACHE_MAX_BYTES) {
     const first = downloadFetchCache.keys().next().value;
+    if (first == null) break;
+    downloadFetchCacheBytes -= downloadFetchCache.get(first)?.data?.byteLength || 0;
     downloadFetchCache.delete(first);
   }
   return item;
@@ -1937,11 +1980,7 @@ function scheduleSniffExtendedRulesLoad() {
 }
 
 function getSniffDomSelectors() {
-  return sniffUnique((window.AEGISSCOPE_SNIFF_RULES || [])
-    .flatMap((rule) => rule.matchers || [])
-    .filter((matcher) => matcher.source === 'selector' && matcher.selector)
-    .map((matcher) => matcher.selector))
-    .slice(0, 2400);
+  return getSniffSignalKeys().selectors;
 }
 
 async function collectSniffRuntimeSignals() {
@@ -1965,13 +2004,36 @@ async function collectSniffRuntimeSignals() {
 }
 
 function getSniffGlobalChains() {
-  return Array.from(new Set([
-    ...(window.AEGISSCOPE_SNIFF_GLOBAL_CHAINS || []),
-    ...(window.AEGISSCOPE_SNIFF_RULES || [])
-      .flatMap((rule) => (rule.matchers || [])
-        .filter((matcher) => matcher.source === 'globals' && matcher.key)
-        .map((matcher) => matcher.key))
-  ])).slice(0, 6000);
+  return getSniffSignalKeys().globalChains;
+}
+
+function getSniffSignalKeys() {
+  const rules = window.AEGISSCOPE_SNIFF_RULES || [];
+  const configuredGlobalChains = window.AEGISSCOPE_SNIFF_GLOBAL_CHAINS || [];
+  if (
+    sniffSignalKeyCache?.rules === rules &&
+    sniffSignalKeyCache?.configuredGlobalChains === configuredGlobalChains
+  ) {
+    return sniffSignalKeyCache.value;
+  }
+  const selectors = new Set();
+  const globalChains = new Set(configuredGlobalChains);
+  for (const rule of rules) {
+    for (const matcher of rule.matchers || []) {
+      if (matcher.source === 'selector' && matcher.selector && selectors.size < 2400) {
+        selectors.add(matcher.selector);
+      }
+      if (matcher.source === 'globals' && matcher.key && globalChains.size < 6000) {
+        globalChains.add(matcher.key);
+      }
+    }
+  }
+  const value = {
+    selectors: Array.from(selectors).slice(0, 2400),
+    globalChains: Array.from(globalChains).slice(0, 6000)
+  };
+  sniffSignalKeyCache = { rules, configuredGlobalChains, value };
+  return value;
 }
 
 function normalizeSniffSignals(page = {}, runtime = {}, background = {}) {
@@ -2055,39 +2117,68 @@ function analyzeSniffSignals(signals) {
   const signalIndex = buildSniffSignalIndex(signals);
   const detected = [];
   for (const rule of rules) {
-    const evidences = [];
-    let version = '';
-    for (const matcher of rule.preparedMatchers || []) {
-      if (!sniffMatcherCanRun(signals, signalIndex, matcher)) continue;
-      for (const item of matchSniffSignal(signals, matcher)) {
-        evidences.push(item);
-        version = bestSniffVersion(version, item.version);
-        if (evidences.length >= SNIFF_MAX_EVIDENCE_PER_RULE) break;
-      }
-      if (evidences.length >= SNIFF_MAX_EVIDENCE_PER_RULE) break;
-    }
-    if (!evidences.length) continue;
-    const uniqueEvidence = uniqueSniffEvidence(evidences);
-    version = bestSniffVersion(version, bestSniffEvidenceVersion(uniqueEvidence));
-    version = bestSniffVersion(version, inferSniffVersion(rule, uniqueEvidence));
-    const score = scoreSniffFinding(rule, uniqueEvidence);
-    const minScore = rule.minScore || 60;
-    const minEvidence = rule.minEvidence || 1;
-    if (isWeakSniffFinding(rule, uniqueEvidence, score)) continue;
-    if (score < minScore || uniqueEvidence.length < minEvidence) continue;
-    detected.push({
-      id: rule.id,
-      name: rule.name,
-      category: rule.category || '其他',
-      version,
-      score,
-      evidences: uniqueEvidence.slice(0, 10),
-      infers: rule.infers || [],
-      excludes: rule.excludes || [],
-      requires: rule.requires || []
-    });
+    const finding = analyzeSniffRule(signals, signalIndex, rule);
+    if (finding) detected.push(finding);
   }
   return detected;
+}
+
+async function analyzeSniffSignalsCooperatively(signals, runSeq) {
+  const rules = await getPreparedSniffRulesCooperatively(runSeq);
+  if (!rules || runSeq !== sniffRunSeq) return null;
+  const signalIndex = buildSniffSignalIndex(signals);
+  const detected = [];
+  let sliceStartedAt = performance.now();
+  for (const rule of rules) {
+    if (runSeq !== sniffRunSeq) return null;
+    const finding = analyzeSniffRule(signals, signalIndex, rule);
+    if (finding) detected.push(finding);
+    if (performance.now() - sliceStartedAt >= SNIFF_ANALYZE_SLICE_MS) {
+      await yieldSniffAnalysis();
+      if (runSeq !== sniffRunSeq) return null;
+      sliceStartedAt = performance.now();
+    }
+  }
+  return detected;
+}
+
+function analyzeSniffRule(signals, signalIndex, rule) {
+  const evidences = [];
+  let version = '';
+  for (const matcher of rule.preparedMatchers || []) {
+    if (!sniffMatcherCanRun(signals, signalIndex, matcher)) continue;
+    for (const item of matchSniffSignal(signals, matcher)) {
+      evidences.push(item);
+      version = bestSniffVersion(version, item.version);
+      if (evidences.length >= SNIFF_MAX_EVIDENCE_PER_RULE) break;
+    }
+    if (evidences.length >= SNIFF_MAX_EVIDENCE_PER_RULE) break;
+  }
+  if (!evidences.length) return null;
+  const uniqueEvidence = uniqueSniffEvidence(evidences);
+  version = bestSniffVersion(version, bestSniffEvidenceVersion(uniqueEvidence));
+  version = bestSniffVersion(version, inferSniffVersion(rule, uniqueEvidence));
+  const score = scoreSniffFinding(rule, uniqueEvidence);
+  const minScore = rule.minScore || 60;
+  const minEvidence = rule.minEvidence || 1;
+  if (isWeakSniffFinding(rule, uniqueEvidence, score)) return null;
+  if (score < minScore || uniqueEvidence.length < minEvidence) return null;
+  return {
+    id: rule.id,
+    name: rule.name,
+    category: rule.category || '其他',
+    version,
+    score,
+    evidences: uniqueEvidence.slice(0, 10),
+    infers: rule.infers || [],
+    excludes: rule.excludes || [],
+    requires: rule.requires || []
+  };
+}
+
+function yieldSniffAnalysis() {
+  if (globalThis.scheduler?.yield) return globalThis.scheduler.yield();
+  return new Promise((resolve) => setTimeout(resolve, 0));
 }
 
 function getPreparedSniffRules() {
@@ -2101,6 +2192,31 @@ function getPreparedSniffRules() {
       keyLower: String(matcher.key || '').toLowerCase()
     }))
   }));
+  sniffPreparedRuleCache = { rules, prepared };
+  return prepared;
+}
+
+async function getPreparedSniffRulesCooperatively(runSeq) {
+  const rules = window.AEGISSCOPE_SNIFF_RULES || [];
+  if (sniffPreparedRuleCache?.rules === rules) return sniffPreparedRuleCache.prepared;
+  const prepared = [];
+  let sliceStartedAt = performance.now();
+  for (const rule of rules) {
+    if (runSeq !== sniffRunSeq) return null;
+    prepared.push({
+      ...rule,
+      preparedMatchers: (rule.matchers || []).map((matcher) => ({
+        ...matcher,
+        hintLower: String(matcher.hint || matcher.contains || '').toLowerCase(),
+        keyLower: String(matcher.key || '').toLowerCase()
+      }))
+    });
+    if (performance.now() - sliceStartedAt >= SNIFF_ANALYZE_SLICE_MS) {
+      await yieldSniffAnalysis();
+      if (runSeq !== sniffRunSeq) return null;
+      sliceStartedAt = performance.now();
+    }
+  }
   sniffPreparedRuleCache = { rules, prepared };
   return prepared;
 }
@@ -2734,8 +2850,7 @@ async function exportSniffJson() {
     findings: sniffState.findings
   };
   const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json;charset=utf-8' });
-  const url = URL.createObjectURL(blob);
-  await chrome.downloads.download({ url, filename: `js-extractor/site-sniff-${Date.now()}.json`, saveAs: true });
+  await downloadBlob(blob, { filename: `js-extractor/site-sniff-${Date.now()}.json`, saveAs: true });
 }
 
 async function openBeianQuery(options = {}) {
@@ -2944,7 +3059,7 @@ function buildBeianLinkSignalText(links) {
 
 async function queryFreeBeianApis(domain, options = {}) {
   const query = normalizeBeianDomain(domain);
-  if (!query || query === 'localhost' || /^\d{1,3}(?:\.\d{1,3}){3}$/.test(query)) return [];
+  if (!isPublicBeianDomain(query)) return [];
   if (!options.bypassCache) {
     const cached = beianApiCache.get(query);
     if (cached && Date.now() - cached.time < BEIAN_API_CACHE_TTL) {
@@ -2965,7 +3080,7 @@ async function queryFreeBeianApis(domain, options = {}) {
     },
     {
       name: '远梦API',
-      url: `http://api.mmp.cc/api/icp?domain=${encodeURIComponent(query)}`,
+      url: `https://api.mmp.cc/api/icp?domain=${encodeURIComponent(query)}`,
       method: 'GET',
       timeout: 10000
     },
@@ -3035,19 +3150,44 @@ async function setPersistedBeianApiCache(domain, results) {
         results
       }
     });
+    await prunePersistedBeianApiCache();
+  } catch {}
+}
+
+async function prunePersistedBeianApiCache() {
+  const data = await chrome.storage.local.get(null);
+  const now = Date.now();
+  const entries = Object.entries(data || {})
+    .filter(([key]) => key.startsWith(BEIAN_API_CACHE_PREFIX))
+    .map(([key, value]) => ({ key, time: Number(value?.time || 0) }));
+  const removeKeys = entries
+    .filter((entry) => !entry.time || now - entry.time >= BEIAN_API_CACHE_TTL)
+    .map((entry) => entry.key);
+  const fresh = entries
+    .filter((entry) => entry.time && now - entry.time < BEIAN_API_CACHE_TTL)
+    .sort((a, b) => b.time - a.time);
+  removeKeys.push(...fresh.slice(BEIAN_PERSISTED_CACHE_LIMIT).map((entry) => entry.key));
+  if (removeKeys.length) await chrome.storage.local.remove(Array.from(new Set(removeKeys)));
+}
+
+async function clearPersistedBeianApiCache() {
+  try {
+    const data = await chrome.storage.local.get(null);
+    const keys = Object.keys(data || {}).filter((key) => key.startsWith(BEIAN_API_CACHE_PREFIX));
+    if (keys.length) await chrome.storage.local.remove(keys);
   } catch {}
 }
 
 async function queryBeianApi(api, domain) {
   try {
-    const response = await fetchWithTimeout(api.url, {
+    const { response, data } = await fetchBytesLimited(api.url, {
       method: api.method || 'GET',
       headers: api.headers || {},
       body: api.body || undefined,
       cache: 'no-store',
       credentials: 'omit'
-    }, api.timeout || 8500);
-    const text = await response.text();
+    }, api.timeout || 8500, 1024 * 1024);
+    const text = new TextDecoder('utf-8').decode(data);
     const payload = parseMaybeJson(text);
     const records = normalizeIcpApiPayload(api.name, payload, text, domain);
     return {
@@ -3070,11 +3210,57 @@ async function queryBeianApi(api, domain) {
   }
 }
 
-async function fetchWithTimeout(url, init, timeout) {
+async function fetchBytesLimited(url, init, timeout, maxBytes, allowTruncate = false) {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeout);
   try {
-    return await fetch(url, { ...init, signal: controller.signal });
+    const response = await fetch(url, { ...init, signal: controller.signal });
+    const contentLength = Number(response.headers.get('content-length') || 0);
+    if (contentLength > maxBytes && !allowTruncate) {
+      await response.body?.cancel?.().catch(() => {});
+      throw new Error('resource too large');
+    }
+    const reader = response.body?.getReader?.();
+    if (!reader) {
+      const data = new Uint8Array(await response.arrayBuffer());
+      if (data.byteLength > maxBytes) {
+        if (!allowTruncate) throw new Error('resource too large');
+        return { response, data: data.subarray(0, maxBytes) };
+      }
+      return { response, data };
+    }
+    const chunks = [];
+    let total = 0;
+    try {
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        if (total + value.byteLength > maxBytes) {
+          if (allowTruncate) {
+            const remaining = maxBytes - total;
+            if (remaining > 0) {
+              chunks.push(value.subarray(0, remaining));
+              total += remaining;
+            }
+            await reader.cancel().catch(() => {});
+            break;
+          }
+          await reader.cancel().catch(() => {});
+          throw new Error('resource too large');
+        }
+        chunks.push(value);
+        total += value.byteLength;
+      }
+    } finally {
+      try { reader.releaseLock(); } catch {}
+    }
+    const data = new Uint8Array(total);
+    let offset = 0;
+    for (const chunk of chunks) {
+      data.set(chunk, offset);
+      offset += chunk.byteLength;
+    }
+    return { response, data };
   } finally {
     clearTimeout(timer);
   }
@@ -3577,8 +3763,7 @@ async function exportBeianJson() {
     return;
   }
   const blob = new Blob([JSON.stringify(beianState.result, null, 2)], { type: 'application/json;charset=utf-8' });
-  const url = URL.createObjectURL(blob);
-  await chrome.downloads.download({ url, filename: `js-extractor/beian-query-${Date.now()}.json`, saveAs: true });
+  await downloadBlob(blob, { filename: `js-extractor/beian-query-${Date.now()}.json`, saveAs: true });
 }
 
 function normalizeBeianValue(value) {
@@ -3615,6 +3800,22 @@ function normalizeBeianDomain(value) {
   } catch {
     return getRootDomain(normalizeBeianHost(text));
   }
+}
+
+function isPublicBeianDomain(domain) {
+  const clean = normalizeBeianHost(domain);
+  if (!clean || clean === 'localhost' || /^\d{1,3}(?:\.\d{1,3}){3}$/.test(clean)) return false;
+  const labels = clean.split('.').filter(Boolean);
+  if (labels.length < 2 || labels.some((label) => !/^(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?|xn--[a-z0-9-]{1,59})$/i.test(label))) {
+    return false;
+  }
+  const privateSuffixes = new Set([
+    'local', 'localhost', 'localdomain', 'lan', 'home', 'internal', 'intranet',
+    'corp', 'private', 'test', 'example', 'invalid', 'onion'
+  ]);
+  const suffix = labels[labels.length - 1].toLowerCase();
+  if (privateSuffixes.has(suffix)) return false;
+  return /^(?:[a-z]{2,63}|xn--[a-z0-9-]{2,59})$/i.test(suffix);
 }
 
 function getRootDomain(host) {
@@ -3680,7 +3881,7 @@ function escapeAttr(value) {
   return escapeHtml(value).replace(/`/g, '&#96;');
 }
 
-function collectSniffPageSignalsInPage(extraSelectors = []) {
+async function collectSniffPageSignalsInPage(extraSelectors = []) {
   const meta = {};
   for (const node of document.querySelectorAll('meta')) {
     const key = (node.getAttribute('name') || node.getAttribute('property') || node.getAttribute('http-equiv') || '').toLowerCase();
@@ -3700,12 +3901,88 @@ function collectSniffPageSignalsInPage(extraSelectors = []) {
     try { return new URL(value, location.href).href; } catch { return ''; }
   };
   const attrs = (node) => Object.fromEntries(Array.from(node?.attributes || []).map((attr) => [attr.name.toLowerCase(), attr.value || '']));
+  const allNodes = document.getElementsByTagName('*');
+  const resourceEntries = performance.getEntriesByType('resource');
+  const heavyPage = /(^|\.)mp\.weixin\.qq\.com$/i.test(location.hostname)
+    || allNodes.length > 6500
+    || resourceEntries.length > 900;
+  const limits = heavyPage
+    ? {
+        classNodeChecks: 2400,
+        vueNodeChecks: 1800,
+        linkHrefs: 520,
+        styleHrefs: 180,
+        inlineScriptChars: 100000,
+        inlineScriptCount: 28,
+        cssChars: 70000,
+        selectorCount: 520,
+        selectorBudgetMs: 260,
+        htmlChars: 260000,
+        textChars: 36000,
+        resources: 520,
+        scriptSrc: 520
+      }
+    : {
+        classNodeChecks: 5200,
+        vueNodeChecks: 5000,
+        linkHrefs: 900,
+        styleHrefs: 300,
+        inlineScriptChars: 220000,
+        inlineScriptCount: 60,
+        cssChars: 180000,
+        selectorCount: 2400,
+        selectorBudgetMs: 900,
+        htmlChars: 650000,
+        textChars: 50000,
+        resources: 700,
+        scriptSrc: 700
+      };
+  const yieldNow = () => new Promise((resolve) => setTimeout(resolve, 0));
+  const compactOuterHtml = (node, limit = 1200) => {
+    try { return String(node?.outerHTML || '').slice(0, limit); } catch { return ''; }
+  };
+  const serializeAttrs = (node) => Array.from(node?.attributes || [])
+    .map((attr) => `${attr.name}="${String(attr.value || '').slice(0, 260).replace(/"/g, '&quot;')}"`)
+    .join(' ');
+  const buildHtmlSample = () => {
+    if (!heavyPage) {
+      try { return document.documentElement.outerHTML.slice(0, limits.htmlChars); } catch { return ''; }
+    }
+    const parts = [
+      `<html ${serializeAttrs(document.documentElement)}>`,
+      document.head ? compactOuterHtml(document.head, 110000) : '',
+      `<body ${serializeAttrs(document.body)}>`
+    ];
+    let sampledChars = parts.join('\n').length;
+    const pushSelector = (selector, maxNodes, maxChars) => {
+      let count = 0;
+      for (const node of document.querySelectorAll(selector)) {
+        const html = compactOuterHtml(node, maxChars);
+        if (html) {
+          parts.push(html);
+          sampledChars += html.length + 1;
+        }
+        if (++count >= maxNodes || sampledChars >= limits.htmlChars) break;
+      }
+    };
+    try {
+      pushSelector('script[src], link[href], meta', 260, 1000);
+      pushSelector('script:not([src])', 18, 1800);
+      pushSelector('form, iframe, frame, object, embed', 80, 1800);
+      pushSelector('[data-v-app], [data-server-rendered], [data-vue-meta], [data-n-head], #__nuxt, #__next', 90, 900);
+      pushSelector('source[src], video[src], audio[src]', 80, 700);
+    } catch {}
+    parts.push('</body></html>');
+    return parts.join('\n').slice(0, limits.htmlChars);
+  };
   const classNames = [];
   const ids = [];
-  for (const node of document.querySelectorAll('[class], [id]')) {
+  for (let i = 0; i < allNodes.length && i < limits.classNodeChecks; i++) {
+    const node = allNodes[i];
     if (node.id) ids.push(node.id);
     if (node.classList?.length) classNames.push(...Array.from(node.classList));
     if (classNames.length > 1800 && ids.length > 500) break;
+    if (i > 0 && i % 1200 === 0) await yieldNow();
   }
   const vueMarkers = [];
   const pushVueMarker = (value) => {
@@ -3724,63 +4001,76 @@ function collectSniffPageSignalsInPage(extraSelectors = []) {
     try { if (document.querySelector(selector)) pushVueMarker(marker); } catch {}
   }
   let vueNodeChecks = 0;
-  for (const node of document.querySelectorAll('*')) {
+  for (let i = 0; i < allNodes.length && i < limits.vueNodeChecks; i++) {
+    const node = allNodes[i];
     for (const attr of Array.from(node.attributes || [])) {
       if (/^data-v-[a-f0-9]{6,}$/i.test(attr.name)) {
         pushVueMarker(attr.name);
         break;
       }
     }
-    if (++vueNodeChecks >= 5000 || vueMarkers.length >= 20) break;
+    if (++vueNodeChecks >= limits.vueNodeChecks || vueMarkers.length >= 20) break;
+    if (vueNodeChecks % 1200 === 0) await yieldNow();
   }
-  const linkHrefs = Array.from(document.querySelectorAll('link[href], a[href]'))
-    .map((node) => node.getAttribute('href'))
-    .filter(Boolean)
-    .map(abs)
-    .filter(Boolean)
-    .slice(0, 900);
-  const styleHrefs = Array.from(document.querySelectorAll('link[rel~="stylesheet"][href]'))
-    .map((node) => node.getAttribute('href'))
-    .filter(Boolean)
-    .map(abs)
-    .filter(Boolean)
-    .slice(0, 300);
+  const collectUrls = (selector, attribute, limit) => {
+    const items = [];
+    for (const node of document.querySelectorAll(selector)) {
+      const url = abs(node.getAttribute(attribute));
+      if (url) items.push(url);
+      if (items.length >= limit) break;
+    }
+    return items;
+  };
+  const linkHrefs = collectUrls('link[href], a[href]', 'href', limits.linkHrefs);
+  const styleHrefs = collectUrls('link[rel~="stylesheet"][href]', 'href', limits.styleHrefs);
   const scripts = [];
   let scriptChars = 0;
-  for (const node of Array.from(document.scripts)) {
+  for (let i = 0; i < document.scripts.length; i++) {
+    const node = document.scripts[i];
     const text = node.textContent || '';
     if (!text.trim()) continue;
-    const remaining = 220000 - scriptChars;
-    if (remaining <= 0 || scripts.length >= 60) break;
+    const remaining = limits.inlineScriptChars - scriptChars;
+    if (remaining <= 0 || scripts.length >= limits.inlineScriptCount) break;
     scripts.push(text.slice(0, remaining));
     scriptChars += Math.min(text.length, remaining);
+    if (scripts.length % 12 === 0) await yieldNow();
   }
   const css = [];
   let cssChars = 0;
-  try {
-    for (const sheet of Array.from(document.styleSheets)) {
-      for (const rule of Array.from(sheet.cssRules || [])) {
+  for (let sheetIndex = 0; sheetIndex < document.styleSheets.length; sheetIndex++) {
+    const sheet = document.styleSheets[sheetIndex];
+    try {
+      const rules = sheet.cssRules || [];
+      for (let i = 0; i < rules.length; i++) {
+        const rule = rules[i];
         const text = rule.cssText || '';
         css.push(text);
         cssChars += text.length + 1;
-        if (cssChars > 180000) break;
+        if (cssChars > limits.cssChars) break;
       }
-      if (cssChars > 180000) break;
-    }
-  } catch {}
+      if (cssChars > limits.cssChars) break;
+    } catch {}
+  }
   const selectorMatches = [];
-  for (const selector of Array.isArray(extraSelectors) ? extraSelectors.slice(0, 2400) : []) {
+  const selectorStart = performance.now();
+  const selectorLimit = Array.isArray(extraSelectors) ? extraSelectors.slice(0, limits.selectorCount) : [];
+  for (let i = 0; i < selectorLimit.length; i++) {
+    const selector = selectorLimit[i];
     if (typeof selector !== 'string' || selector.length > 180) continue;
     try {
       if (document.querySelector(selector)) selectorMatches.push(selector);
     } catch {}
+    if (i > 0 && i % 80 === 0) {
+      if (performance.now() - selectorStart > limits.selectorBudgetMs) break;
+      await yieldNow();
+    }
   }
   return {
     url: location.href,
     title: document.title,
-    html: document.documentElement.outerHTML.slice(0, 650000),
-    text: (document.body?.innerText || '').slice(0, 50000),
-    css: css.join('\n').slice(0, 180000),
+    html: buildHtmlSample(),
+    text: (document.body?.textContent || '').slice(0, limits.textChars),
+    css: css.join('\n').slice(0, limits.cssChars),
     scripts,
     meta,
     cookies,
@@ -3792,8 +4082,9 @@ function collectSniffPageSignalsInPage(extraSelectors = []) {
     htmlAttrs: attrs(document.documentElement),
     bodyAttrs: attrs(document.body),
     selectorMatches,
-    scriptSrc: Array.from(document.scripts).map((node) => node.src || node.getAttribute('src')).filter(Boolean).map(abs).filter(Boolean),
-    resources: performance.getEntriesByType('resource').map((entry) => ({ url: entry.name, type: entry.initiatorType || 'resource' })).slice(0, 700)
+    scriptSrc: collectUrls('script[src]', 'src', limits.scriptSrc),
+    resources: resourceEntries.map((entry) => ({ url: entry.name, type: entry.initiatorType || 'resource' })).slice(0, limits.resources),
+    heavyPage
   };
 }
 
@@ -3804,10 +4095,15 @@ function collectSniffRuntimeSignalsInPage(extraChains = []) {
   const uniqueChains = Array.from(new Set(chains)).slice(0, 6000);
   const globals = {};
   for (const chain of uniqueChains) {
-    const value = chain.split('.').reduce((obj, key) => {
-      if (obj && Object.prototype.hasOwnProperty.call(Object(obj), key)) return obj[key];
-      return undefined;
-    }, window);
+    let value;
+    try {
+      value = chain.split('.').reduce((obj, key) => {
+        if (obj && Object.prototype.hasOwnProperty.call(Object(obj), key)) return obj[key];
+        return undefined;
+      }, window);
+    } catch {
+      continue;
+    }
     if (typeof value === 'undefined') continue;
     if (typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean') globals[chain] = String(value).slice(0, 160);
     else if (typeof value === 'function') globals[chain] = 'function';
@@ -3838,9 +4134,16 @@ function collectSniffRuntimeSignalsInPage(extraChains = []) {
     if (window.Pinia || window.Pinia?.createPinia) pushVueRuntime('pinia-runtime');
     if (window.VueRouter || window.Vuex || window.Pinia) pushVueRuntime('vue-ecosystem-global');
   } catch {}
-  let vueDomChecks = 0;
   try {
-    for (const node of document.querySelectorAll('*')) {
+    const allNodes = document.getElementsByTagName('*');
+    const resourceCount = performance.getEntriesByType('resource').length;
+    const heavyPage = /(^|\.)mp\.weixin\.qq\.com$/i.test(location.hostname)
+      || allNodes.length > 6500
+      || resourceCount > 900;
+    const maxVueDomChecks = heavyPage ? 1800 : 5000;
+    let vueDomChecks = 0;
+    for (let i = 0; i < allNodes.length && i < maxVueDomChecks; i++) {
+      const node = allNodes[i];
       if (node.__vue_app__) {
         pushVueRuntime('__vue_app__');
         if (node.__vue_app__?.version) pushVueRuntime(`version:${node.__vue_app__.version}`);
@@ -3860,7 +4163,7 @@ function collectSniffRuntimeSignalsInPage(extraChains = []) {
         const version = node.__vnode?.appContext?.app?.version || node._vnode?.appContext?.app?.version;
         if (version) pushVueRuntime(`version:${version}`);
       }
-      if (++vueDomChecks >= 5000 || vueRuntime.length >= 20) break;
+      if (++vueDomChecks >= maxVueDomChecks || vueRuntime.length >= 20) break;
     }
   } catch {}
   const jqueryRuntime = [];
@@ -3891,7 +4194,7 @@ function sniffRegex(pattern) {
   if (SNIFF_REGEX_CACHE.has(key)) return SNIFF_REGEX_CACHE.get(key);
   let regex;
   try { regex = new RegExp(key, 'i'); } catch { regex = /$a/; }
-  if (SNIFF_REGEX_CACHE.size > 600) SNIFF_REGEX_CACHE.clear();
+  if (SNIFF_REGEX_CACHE.size >= SNIFF_REGEX_CACHE_LIMIT) SNIFF_REGEX_CACHE.clear();
   SNIFF_REGEX_CACHE.set(key, regex);
   return regex;
 }
@@ -3937,6 +4240,7 @@ async function openFingerprintScan() {
 }
 
 async function openSiteSniff(options = {}) {
+  sniffDefaultStartPending = false;
   activeMainView = 'sniff';
   if (options.active) setActiveActionButton(els.siteSniff);
   els.sniffPanel.hidden = false;
@@ -3956,6 +4260,14 @@ async function openSiteSniff(options = {}) {
       return;
     }
   }
+  const runKey = cacheKey || `${currentTabId}:${currentTabHost || ''}`;
+  if (sniffRunningKey && sniffRunningKey === runKey && !options.bypassCache) {
+    els.sniffStatus.textContent = '正在识别当前页面，请稍候...';
+    setStatus('网站嗅探正在进行中');
+    return;
+  }
+  sniffRunningKey = runKey;
+  const runSeq = ++sniffRunSeq;
   els.sniffStatus.textContent = '正在快速识别当前页面...';
   els.sniffSummary.innerHTML = '';
   els.sniffResults.innerHTML = '<div class="empty visible">正在读取页面信号...</div>';
@@ -3964,6 +4276,7 @@ async function openSiteSniff(options = {}) {
 
   try {
     const extendedReady = await ensureSniffExtendedRulesLoaded();
+    if (runSeq !== sniffRunSeq) return;
     if (!extendedReady) setStatus('网站嗅探扩展规则加载失败，已使用基础规则继续');
     
     const cached = options.bypassCache ? null : getCachedSniffResult(cacheKey);
@@ -3977,8 +4290,12 @@ async function openSiteSniff(options = {}) {
       collectSniffRuntimeSignals(),
       chrome.runtime.sendMessage({ type: 'GET_SNIFF_DATA', tabId: currentTabId }).catch(() => ({}))
     ]);
+    if (runSeq !== sniffRunSeq) return;
     const signals = normalizeSniffSignals(pageSignals, runtimeSignals, backgroundSignals);
-    const findings = resolveSniffFindings(analyzeSniffSignals(signals));
+    const detected = await analyzeSniffSignalsCooperatively(signals, runSeq);
+    if (!detected || runSeq !== sniffRunSeq) return;
+    const findings = resolveSniffFindings(detected);
+    if (runSeq !== sniffRunSeq) return;
     sniffState = { signals, findings };
     setCachedSniffResult(cacheKey || getSniffCacheKeyFromSignals(signals), sniffState);
     renderSniffResults();
@@ -3986,11 +4303,13 @@ async function openSiteSniff(options = {}) {
       ? `识别完成：${findings.length} 项技术`
       : '未识别到明确技术，可刷新目标页面后重试';
     setStatus(`网站嗅探完成：${findings.length} 项技术`);
-    setTimeout(() => refreshSniffRuntimeSignals(signals.url).catch(() => {}), 1800);
+    setTimeout(() => refreshSniffRuntimeSignals(signals.url, runSeq).catch(() => {}), 1800);
   } catch (err) {
     els.sniffStatus.textContent = `识别失败：${err.message}`;
     els.sniffResults.innerHTML = '<div class="empty visible">网站嗅探失败。</div>';
     setStatus(`网站嗅探失败：${err.message}`);
+  } finally {
+    if (sniffRunningKey === runKey && runSeq === sniffRunSeq) sniffRunningKey = '';
   }
 }
 
@@ -4032,11 +4351,60 @@ function setCachedSniffResult(key, state) {
     const oldest = [...sniffResultCache.entries()].sort((a, b) => a[1].time - b[1].time)[0]?.[0];
     if (oldest) sniffResultCache.delete(oldest);
   }
+  persistSniffResultCache().catch(() => {});
 }
 
-async function refreshSniffRuntimeSignals(expectedUrl) {
-  if (!sniffState.signals || sniffState.signals.url !== expectedUrl || els.sniffPanel.hidden) return;
+async function restorePersistedSniffCache() {
+  try {
+    const data = await chrome.storage.local.get(SNIFF_RESULT_CACHE_STORAGE_KEY);
+    const entries = data?.[SNIFF_RESULT_CACHE_STORAGE_KEY];
+    if (!Array.isArray(entries)) return;
+    const now = Date.now();
+    for (const entry of entries) {
+      if (!entry?.key || !entry?.signals?.url || !Array.isArray(entry.findings)) continue;
+      if (now - Number(entry.time || 0) > SNIFF_RESULT_CACHE_TTL) continue;
+      sniffResultCache.set(entry.key, {
+        time: Number(entry.time || now),
+        signals: entry.signals,
+        findings: entry.findings
+      });
+    }
+  } catch {}
+}
+
+async function persistSniffResultCache() {
+  const entries = [...sniffResultCache.entries()]
+    .sort((a, b) => b[1].time - a[1].time)
+    .slice(0, SNIFF_PERSISTED_CACHE_LIMIT)
+    .map(([key, item]) => ({
+      key,
+      time: item.time,
+      signals: {
+        url: item.signals?.url || '',
+        title: item.signals?.title || '',
+        scriptSrc: (item.signals?.scriptSrc || []).slice(0, 240),
+        resourceUrls: (item.signals?.resourceUrls || []).slice(0, 500),
+        linkHrefs: (item.signals?.linkHrefs || []).slice(0, 240),
+        vueRuntime: (item.signals?.vueRuntime || []).slice(0, 24),
+        jqueryRuntime: (item.signals?.jqueryRuntime || []).slice(0, 24)
+      },
+      findings: (item.findings || []).slice(0, 200).map((finding) => ({
+        ...finding,
+        evidences: (finding.evidences || []).slice(0, 8)
+      }))
+    }));
+  await chrome.storage.local.set({ [SNIFF_RESULT_CACHE_STORAGE_KEY]: entries });
+}
+
+async function refreshSniffRuntimeSignals(expectedUrl, expectedRunSeq = sniffRunSeq) {
+  if (
+    expectedRunSeq !== sniffRunSeq ||
+    !sniffState.signals ||
+    sniffState.signals.url !== expectedUrl ||
+    els.sniffPanel.hidden
+  ) return;
   const runtimeSignals = await collectSniffRuntimeSignals();
+  if (expectedRunSeq !== sniffRunSeq || els.sniffPanel.hidden) return;
   const mergedSignals = {
     ...sniffState.signals,
     globals: {
@@ -4052,7 +4420,9 @@ async function refreshSniffRuntimeSignals(expectedUrl) {
       ...(runtimeSignals.jqueryRuntime || [])
     ])
   };
-  const findings = resolveSniffFindings(analyzeSniffSignals(mergedSignals));
+  const detected = await analyzeSniffSignalsCooperatively(mergedSignals, expectedRunSeq);
+  if (!detected || expectedRunSeq !== sniffRunSeq || els.sniffPanel.hidden) return;
+  const findings = resolveSniffFindings(detected);
   if (JSON.stringify(findings) === JSON.stringify(sniffState.findings)) return;
   sniffState = { signals: mergedSignals, findings };
   setCachedSniffResult(getSniffCacheKeyFromSignals(mergedSignals), sniffState);
@@ -4098,6 +4468,11 @@ async function clearAllRecords() {
   sniffState = { signals: null, findings: [] };
   beianState = { signals: null, result: null };
   sniffResultCache.clear();
+  beianApiCache.clear();
+  await Promise.all([
+    chrome.storage.local.remove(SNIFF_RESULT_CACHE_STORAGE_KEY).catch(() => {}),
+    clearPersistedBeianApiCache()
+  ]);
   els.sniffSummary.innerHTML = '';
   els.sniffResults.innerHTML = '<div class="empty visible">已清空网站嗅探结果，请点击“刷新全部”重新分析。</div>';
   els.sniffEvidence.innerHTML = '';
@@ -4131,8 +4506,9 @@ async function viewScript(s) {
   } else {
     els.viewerContent.textContent = '加载中...';
     try {
-      const res = await fetch(s.url);
-      const text = await res.text();
+      const { response: res, data } = await fetchBytesLimited(s.url, { cache: 'force-cache' }, 10000, 512000, true);
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const text = new TextDecoder('utf-8').decode(data);
       els.viewerContent.textContent = text.length > 500000
         ? text.slice(0, 500000) + '\n/* ...内容已截断 */'
         : text;

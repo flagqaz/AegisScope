@@ -11,9 +11,16 @@
     hits: 0,
     timer: 0,
     observer: null,
-    notes: []
+    notes: [],
+    globalVueRouterBackup: null,
+    globalVueRouterCurrent: undefined,
+    prototypeBackups: []
   };
   state.enabled = true;
+  state.routers = [];
+  state.globalVueRouterBackup = null;
+  state.globalVueRouterCurrent = undefined;
+  state.prototypeBackups = [];
 
   const seenRouters = new WeakSet();
   const seenNodes = new WeakSet();
@@ -178,6 +185,11 @@
     if (current) patchVueRouterObject(current);
     try {
       let stored = current;
+      state.globalVueRouterBackup = {
+        hadOwn: Object.prototype.hasOwnProperty.call(window, 'VueRouter'),
+        descriptor: Object.getOwnPropertyDescriptor(window, 'VueRouter') || null
+      };
+      state.globalVueRouterCurrent = current;
       Object.defineProperty(window, 'VueRouter', {
         configurable: true,
         get() {
@@ -185,6 +197,7 @@
         },
         set(value) {
           stored = value;
+          state.globalVueRouterCurrent = value;
           patchVueRouterObject(value);
         }
       });
@@ -197,6 +210,14 @@
       if (!proto) return;
       for (const prop of guardMethods) {
         if (typeof proto[prop] !== 'function' || proto[prop].__aegisScopeEarlyPatched) continue;
+        if (!state.prototypeBackups.some((entry) => entry.target === proto && entry.prop === prop)) {
+          state.prototypeBackups.push({
+            target: proto,
+            prop,
+            descriptor: Object.getOwnPropertyDescriptor(proto, prop) || null,
+            value: proto[prop]
+          });
+        }
         const patched = function aegisScopeEarlyPrototypeGuard() {
           state.hits++;
           return function aegisScopeEarlyPrototypeUnregister() {};
@@ -214,6 +235,7 @@
     try { state.observer?.disconnect(); } catch {}
     state.observer = null;
     let restored = 0;
+    const routerCount = state.routers?.length || 0;
     for (const item of state.routers || []) {
       const backup = item.router?.__AEGISSCOPE_EARLY_BACKUP__;
       if (!backup) continue;
@@ -244,7 +266,33 @@
         delete item.router.__AEGISSCOPE_EARLY_BACKUP__;
       } catch {}
     }
-    return { restored, routers: state.routers?.length || 0 };
+    for (const entry of state.prototypeBackups || []) {
+      try {
+        if (entry.descriptor) Object.defineProperty(entry.target, entry.prop, entry.descriptor);
+        else entry.target[entry.prop] = entry.value;
+        restored++;
+      } catch {}
+    }
+    const globalBackup = state.globalVueRouterBackup;
+    if (globalBackup) {
+      try {
+        const current = state.globalVueRouterCurrent;
+        if (globalBackup.hadOwn && globalBackup.descriptor) {
+          const descriptor = { ...globalBackup.descriptor };
+          if (Object.prototype.hasOwnProperty.call(descriptor, 'value')) descriptor.value = current;
+          Object.defineProperty(window, 'VueRouter', descriptor);
+        } else {
+          delete window.VueRouter;
+          if (current !== undefined) window.VueRouter = current;
+        }
+        restored++;
+      } catch {}
+    }
+    state.routers = [];
+    state.prototypeBackups = [];
+    state.globalVueRouterBackup = null;
+    state.globalVueRouterCurrent = undefined;
+    return { restored, routers: routerCount };
   }
 
   function isAuthKey(key) {

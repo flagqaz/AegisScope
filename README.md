@@ -1,7 +1,7 @@
-﻿<div align="center">
+<div align="center">
   <img src="icons/icon128.png" alt="玄镜 AegisScope" width="88" height="88">
 
-  <h2>玄镜 AegisScope V2.2.7</h2>
+  <h2>玄镜 AegisScope V2.2.8</h2>
 
   <p>
     前端代码资产采集、网站嗅探、备案查询、指纹扫描、泄露扫描、漏洞审计、浏览器辅助与 Vue Router 分析工具。
@@ -159,6 +159,16 @@ UA 修改：用于快速切换当前页面 User-Agent。内置 66 个常用 UA�
 
 ## 版本记录
 
+### V2.2.8
+
+- 集中修复复杂页面打开插件及切换功能时的卡顿问题，网站嗅探改为分片分析并支持切换时及时停止当前任务；代码资产采集改为异步执行，并限制单次采集和后台缓存规模。
+- 泄露扫描、漏洞审计、jQuery 验证和资源保存增加超时、流式读取、体积限制与异常状态恢复，失败后可直接重新运行。
+- 优化指纹主动探测顺序，在不增加请求总量的前提下优先使用页面证据，并让规则探测路径获得更均衡的执行机会。
+- 修复 Vue 增强模式关闭后全局 Router 修改未完全恢复，以及当前标签页 UA 配置在标签关闭后残留的问题。
+- 网站嗅探结果支持跨弹窗缓存；清空记录会同步清除备案与嗅探缓存，刷新全部仍会强制重新分析。
+- 备案查询不再向第三方接口发送本地域名或内部域名，将明文接口请求调整为 HTTPS，并自动淘汰过期缓存。
+- 减少解除复制未启用时的页面监听开销，关闭后不再执行已排队任务；导出完成后自动释放临时下载资源。
+
 ### V2.2.7
 
 - 优化主弹窗和各功能页的浅色 UI，整体更清爽，文字对比度更高。
@@ -290,16 +300,16 @@ UA 修改：用于快速切换当前页面 User-Agent。内置 66 个常用 UA�
 - 支持漏洞审计、API 批量测试、自动验证与人工复核建议。
 - 支持 Vue Router 运行时分析、路由跳转与守卫绕过验证。
 
-玄镜 AegisScope V2.2.7  
+玄镜 AegisScope V2.2.8  
 为授权前端安全测试、代码资产分析和漏洞审计而生。
 
 ## Star History
 
 <a href="https://www.star-history.com/?repos=flagqaz%2FAegisScope&type=date&legend=top-left">
  <picture>
-   <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/chart?repos=flagqaz/AegisScope&type=date&theme=dark&legend=top-left&sealed_token=ukw6POoiHFN_phcFQSJ9x0cbe4aQUm6E7q5OCr_QJBk5iGzBFVxd-ky70-N_8JjC-yPYiRISap_i8vTFLEq0BCIblFJVAwG1v49LdnqYwpFr-Gf8Ikxa3w" />
-   <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/chart?repos=flagqaz/AegisScope&type=date&legend=top-left&sealed_token=ukw6POoiHFN_phcFQSJ9x0cbe4aQUm6E7q5OCr_QJBk5iGzBFVxd-ky70-N_8JjC-yPYiRISap_i8vTFLEq0BCIblFJVAwG1v49LdnqYwpFr-Gf8Ikxa3w" />
-   <img alt="Star History Chart" src="https://api.star-history.com/chart?repos=flagqaz/AegisScope&type=date&legend=top-left&sealed_token=ukw6POoiHFN_phcFQSJ9x0cbe4aQUm6E7q5OCr_QJBk5iGzBFVxd-ky70-N_8JjC-yPYiRISap_i8vTFLEq0BCIblFJVAwG1v49LdnqYwpFr-Gf8Ikxa3w" />
+   <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/chart?repos=flagqaz/AegisScope&type=date&theme=dark&legend=top-left" />
+   <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/chart?repos=flagqaz/AegisScope&type=date&legend=top-left" />
+   <img alt="Star History Chart" src="https://api.star-history.com/chart?repos=flagqaz/AegisScope&type=date&legend=top-left" />
  </picture>
 </a>
 

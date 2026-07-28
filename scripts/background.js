@@ -20,6 +20,8 @@ const UA_ISOLATED_SCRIPT_ID = 'aegisscope-ua-simple-isolated';
 const UA_RULE_ID_START = 330000;
 const UA_RULE_ID_END = 330199;
 const UA_MATCHES = ['http://*/*', 'https://*/*'];
+const TAB_SCRIPT_MAX_ITEMS = 1600;
+const TAB_INLINE_MAX_CHARS = 8 * 1024 * 1024;
 const UA_RESOURCE_TYPES = [
   'main_frame',
   'sub_frame',
@@ -124,6 +126,28 @@ function recordScript(tabId, url, meta = {}) {
   existing.type = meta.type || existing.type || 'script';
   existing.lastSeen = Date.now();
   bucket.set(url, existing);
+  trimTabScriptBucket(bucket);
+}
+
+function trimTabScriptBucket(bucket) {
+  while (bucket.size > TAB_SCRIPT_MAX_ITEMS) {
+    const first = bucket.keys().next().value;
+    if (first == null) break;
+    bucket.delete(first);
+  }
+  let inlineChars = 0;
+  const inlineEntries = [];
+  for (const [key, item] of bucket) {
+    if (!item?.inline) continue;
+    const size = String(item.content || '').length;
+    inlineChars += size;
+    inlineEntries.push([key, size]);
+  }
+  for (const [key, size] of inlineEntries) {
+    if (inlineChars <= TAB_INLINE_MAX_CHARS) break;
+    bucket.delete(key);
+    inlineChars -= size;
+  }
 }
 
 chrome.webRequest.onCompleted.addListener(
@@ -163,6 +187,7 @@ chrome.tabs.onRemoved.addListener((tabId) => {
   tabScripts.delete(tabId);
   tabObservations.delete(tabId);
   tabCopyUnlock.delete(tabId);
+  clearClosedTabUaConfig(tabId).catch(() => {});
 });
 
 function getUrlHost(url) {
@@ -736,9 +761,21 @@ async function injectUa(tabId, config) {
 }
 
 async function restoreUaSimple() {
-  const config = await getUaConfig();
+  let config = await getUaConfig();
+  if (config.enabled && config.mode === 'tab') {
+    const tabExists = await chrome.tabs.get(config.tabId).then(() => true).catch(() => false);
+    if (!tabExists) config = await saveUaConfig(defaultUaConfig());
+  }
   await replaceUaRules(config).catch(() => {});
   await ensureUaScripts(config).catch(() => {});
+}
+
+async function clearClosedTabUaConfig(tabId) {
+  const config = await getUaConfig();
+  if (!config.enabled || config.mode !== 'tab' || Number(config.tabId) !== Number(tabId)) return;
+  const reset = await saveUaConfig(defaultUaConfig());
+  await replaceUaRules(reset).catch(() => {});
+  await ensureUaScripts(reset).catch(() => {});
 }
 
 async function getUaState(tabId) {
@@ -975,8 +1012,9 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
           lastSeen: Date.now()
         });
       }
+      trimTabScriptBucket(bucket);
     }
-    sendResponse({ ok: true });
+    sendResponse({ ok: true, count: getTabBucket(tabId).size });
     return true;
   }
 });

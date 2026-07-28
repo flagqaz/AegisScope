@@ -40,6 +40,11 @@ let perFileResults = [];
 let aggregate = null;
 let scanning = false;
 const scanTextCache = new Map();
+let scanTextCacheChars = 0;
+const SCAN_MAX_QUEUE_ITEMS = 1200;
+const SCAN_MAX_RESOURCE_BYTES = 8 * 1024 * 1024;
+const SCAN_MAX_CACHE_CHARS = 48 * 1024 * 1024;
+const SCAN_FETCH_TIMEOUT_MS = 12000;
 
 ['critical', 'high', 'medium', 'low'].forEach((sev) => {
   document.getElementById('cnt-' + sev).textContent = '0';
@@ -62,94 +67,104 @@ async function runScanOptimized() {
   scanning = true;
   perFileResults = [];
   scanTextCache.clear();
+  scanTextCacheChars = 0;
   els.results.innerHTML = '';
   els.riskLevel.textContent = '扫描中...';
   els.progress.textContent = '初始化';
   els.progressSub.textContent = '';
 
-  const resp = await chrome.runtime.sendMessage({ type: 'GET_SCRIPTS', tabId: targetTabId });
-  const scripts = resp?.scripts || [];
-  const pageResources = await getPageCodeResources();
-
   try {
-    const tab = await chrome.tabs.get(targetTabId);
-    els.origin.textContent = tab.url || '';
-  } catch { /* ignore */ }
+    const resp = await chrome.runtime.sendMessage({ type: 'GET_SCRIPTS', tabId: targetTabId });
+    const scripts = resp?.scripts || [];
+    const pageResources = await getPageCodeResources();
 
-  if (scripts.length === 0 && !pageResources.items?.length && !pageResources.html) {
-    els.results.innerHTML = '<div class="empty">未发现可扫描代码资源，请回到目标页面让插件抓取后再扫描。</div>';
-    els.riskLevel.textContent = '无数据';
-    scanning = false;
-    return;
-  }
+    try {
+      const tab = await chrome.tabs.get(targetTabId);
+      els.origin.textContent = tab.url || '';
+    } catch { /* ignore */ }
 
-  const queue = [];
-  const seen = new Set();
-  const discovered = { chunks: 0, maps: 0, sourceMapSources: 0, ignored404: 0 };
-  const enqueue = (item) => {
-    const key = item.inline ? `inline:${item.url}` : item.url;
-    if (!key || seen.has(key)) return;
-    seen.add(key);
-    queue.push(item);
-  };
-  if (pageResources.html) {
-    enqueue({
-      url: `[页面HTML] ${pageResources.url || els.origin.textContent || 'current-page'}`,
-      inline: true,
-      content: pageResources.html,
-      kind: 'document'
-    });
-  }
-  for (const item of pageResources.items || []) enqueue({ ...item, discovered: true });
-  scripts.forEach((s) => enqueue({
-    ...s,
-    kind: s.inline ? 'inline' : 'script',
-    discovered: !s.inline && s.source !== 'network' && !s.statusCode
-  }));
+    if (scripts.length === 0 && !pageResources.items?.length && !pageResources.html) {
+      els.results.innerHTML = '<div class="empty">未发现可扫描代码资源，请回到目标页面让插件抓取后再扫描。</div>';
+      els.riskLevel.textContent = '无数据';
+      return;
+    }
 
-  let done = 0;
-  let active = 0;
-  let cursor = 0;
-  let lastPaint = 0;
-  const concurrency = Math.min(6, Math.max(2, navigator.hardwareConcurrency || 4));
-
-  await new Promise((resolve) => {
-    const pump = () => {
-      while (active < concurrency && cursor < queue.length) {
-        const item = queue[cursor++];
-        active++;
-        processScanItem(item, enqueue, discovered)
-          .then((results) => {
-            for (const result of results) perFileResults.push(result);
-          })
-          .catch((err) => {
-            discovered.ignored404++;
-          })
-          .finally(() => {
-            done++;
-            active--;
-            els.progress.textContent = `${done} / ${queue.length}`;
-            els.progressSub.textContent = `chunks ${discovered.chunks} · maps ${discovered.maps} · sources ${discovered.sourceMapSources} · 忽略404 ${discovered.ignored404}`;
-            const now = performance.now();
-            if (now - lastPaint > 180 || done === queue.length) {
-              updateAggregate();
-              renderResults();
-              lastPaint = now;
-            }
-            if (cursor >= queue.length && active === 0) resolve();
-            else pump();
-          });
-      }
+    const queue = [];
+    const seen = new Set();
+    const discovered = { chunks: 0, maps: 0, sourceMapSources: 0, ignored404: 0 };
+    const enqueue = (item) => {
+      const key = item.inline ? `inline:${item.url}` : item.url;
+      if (!key || seen.has(key) || queue.length >= SCAN_MAX_QUEUE_ITEMS) return;
+      seen.add(key);
+      queue.push(item);
     };
-    pump();
-  });
+    if (pageResources.html) {
+      enqueue({
+        url: `[页面HTML] ${pageResources.url || els.origin.textContent || 'current-page'}`,
+        inline: true,
+        content: pageResources.html,
+        kind: 'document'
+      });
+    }
+    for (const item of pageResources.items || []) enqueue({ ...item, discovered: true });
+    scripts.forEach((s) => enqueue({
+      ...s,
+      kind: s.inline ? 'inline' : 'script',
+      discovered: !s.inline && s.source !== 'network' && !s.statusCode
+    }));
 
-  updateAggregate();
-  renderResults();
-  els.progress.textContent = `完成 ${perFileResults.length}`;
-  const totalFindings = perFileResults.reduce((a, f) => a + f.findings.length, 0);
-  els.progressSub.textContent = `${totalFindings} 条 finding · chunk ${discovered.chunks} · sourcemap ${discovered.maps} · 忽略无效资源 ${discovered.ignored404}`;
-  scanning = false;
+    let done = 0;
+    let active = 0;
+    let cursor = 0;
+    let lastPaint = 0;
+    const concurrency = Math.min(6, Math.max(2, navigator.hardwareConcurrency || 4));
+
+    await new Promise((resolve) => {
+      const pump = () => {
+        while (active < concurrency && cursor < queue.length) {
+          const item = queue[cursor++];
+          active++;
+          processScanItem(item, enqueue, discovered)
+            .then((results) => {
+              for (const result of results) perFileResults.push(result);
+            })
+            .catch(() => {
+              discovered.ignored404++;
+            })
+            .finally(() => {
+              done++;
+              active--;
+              els.progress.textContent = `${done} / ${queue.length}`;
+              els.progressSub.textContent = `chunks ${discovered.chunks} · maps ${discovered.maps} · sources ${discovered.sourceMapSources} · 忽略404 ${discovered.ignored404}`;
+              const now = performance.now();
+              if (now - lastPaint > 180 || done === queue.length) {
+                updateAggregate();
+                renderResults();
+                lastPaint = now;
+              }
+              if (cursor >= queue.length && active === 0) resolve();
+              else pump();
+            });
+        }
+      };
+      pump();
+    });
+
+    updateAggregate();
+    renderResults();
+    els.progress.textContent = `完成 ${perFileResults.length}`;
+    const totalFindings = perFileResults.reduce((a, f) => a + f.findings.length, 0);
+    els.progressSub.textContent = `${totalFindings} 条 finding · chunk ${discovered.chunks} · sourcemap ${discovered.maps} · 忽略无效资源 ${discovered.ignored404}`;
+  } catch (err) {
+    els.progress.textContent = '扫描失败';
+    els.progressSub.textContent = err?.message || String(err);
+    els.riskLevel.textContent = '可重试';
+    if (!perFileResults.length) {
+      els.results.innerHTML = '<div class="empty">扫描初始化失败，请检查目标页面后重新扫描。</div>';
+    }
+  } finally {
+    scanning = false;
+  }
 }
 
 async function processScanItem(item, enqueue, discovered) {
@@ -197,6 +212,8 @@ async function processScanItem(item, enqueue, discovered) {
 
 async function fetchCodeForScan(url) {
   const target = new URL(url, location.href);
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), SCAN_FETCH_TIMEOUT_MS);
   let sameOrigin = false;
   try {
     const originText = els.origin.textContent || '';
@@ -206,28 +223,62 @@ async function fetchCodeForScan(url) {
   const options = {
     credentials: sameOrigin ? 'include' : 'omit',
     cache: 'force-cache',
-    referrer: els.origin.textContent || undefined
+    referrer: els.origin.textContent || undefined,
+    signal: controller.signal
   };
-  let res = await fetch(target.href, options);
-  if (!res.ok && sameOrigin && target.search) {
-    const clean = new URL(target.href);
-    clean.search = '';
-    res = await fetch(clean.href, options);
+  try {
+    let res = await fetch(target.href, options);
+    if (!res.ok && sameOrigin && target.search) {
+      await res.body?.cancel?.().catch(() => {});
+      const clean = new URL(target.href);
+      clean.search = '';
+      res = await fetch(clean.href, options);
+    }
+    if (!res.ok) await res.body?.cancel?.().catch(() => {});
+    const text = res.ok ? await readResponseTextLimited(res, SCAN_MAX_RESOURCE_BYTES) : '';
+    return { response: res, text };
+  } finally {
+    clearTimeout(timer);
   }
-  return res;
 }
 
 async function readCodeForScan(url) {
   if (scanTextCache.has(url)) return scanTextCache.get(url);
-  const res = await fetchCodeForScan(url);
-  if (!res.ok) throw new Error(`HTTP ${res.status}`);
-  const text = await res.text();
+  const { response, text } = await fetchCodeForScan(url);
+  if (!response.ok) throw new Error(`HTTP ${response.status}`);
   scanTextCache.set(url, text);
-  if (scanTextCache.size > 800) {
+  scanTextCacheChars += text.length;
+  while (scanTextCache.size > 800 || scanTextCacheChars > SCAN_MAX_CACHE_CHARS) {
     const first = scanTextCache.keys().next().value;
+    if (first == null) break;
+    scanTextCacheChars -= String(scanTextCache.get(first) || '').length;
     scanTextCache.delete(first);
   }
   return text;
+}
+
+async function readResponseTextLimited(response, maxBytes) {
+  const reader = response.body?.getReader?.();
+  if (!reader) return (await response.text()).slice(0, maxBytes);
+  const decoder = new TextDecoder();
+  let total = 0;
+  let text = '';
+  try {
+    while (total < maxBytes) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      const remaining = maxBytes - total;
+      const chunk = value.byteLength > remaining ? value.subarray(0, remaining) : value;
+      total += chunk.byteLength;
+      text += decoder.decode(chunk, { stream: total < maxBytes });
+      if (value.byteLength > remaining) break;
+    }
+    text += decoder.decode();
+    if (total >= maxBytes) await reader.cancel().catch(() => {});
+    return text;
+  } finally {
+    try { reader.releaseLock(); } catch {}
+  }
 }
 
 async function getPageCodeResources() {
@@ -243,6 +294,7 @@ async function getPageCodeResources() {
 }
 
 function collectPageCodeResources() {
+  const maxItems = 1200;
   const excludedExt = new Set([
     '.css', '.png', '.jpg', '.jpeg', '.gif', '.webp', '.avif', '.bmp', '.ico',
     '.svg', '.tif', '.tiff', '.mp4', '.webm', '.mp3', '.wav', '.ogg', '.m3u8',
@@ -276,15 +328,23 @@ function collectPageCodeResources() {
     items.set(url.href, { url: url.href, kind });
   };
 
-  for (const el of document.querySelectorAll('script[src]')) add(el.src || el.getAttribute('src'), 'script');
-  for (const el of document.querySelectorAll('iframe[src], frame[src]')) add(el.src || el.getAttribute('src'), 'document');
+  for (const el of document.querySelectorAll('script[src]')) {
+    add(el.src || el.getAttribute('src'), 'script');
+    if (items.size >= maxItems) break;
+  }
+  for (const el of document.querySelectorAll('iframe[src], frame[src]')) {
+    if (items.size >= maxItems) break;
+    add(el.src || el.getAttribute('src'), 'document');
+  }
   for (const el of document.querySelectorAll('link[href]')) {
+    if (items.size >= maxItems) break;
     const rel = (el.rel || '').toLowerCase();
     const as = (el.as || '').toLowerCase();
     if (rel.includes('stylesheet') || rel.includes('icon') || (rel.includes('preload') && as === 'style')) continue;
     add(el.href || el.getAttribute('href'), rel.includes('manifest') ? 'manifest' : 'resource');
   }
   for (const entry of performance.getEntriesByType('resource')) {
+    if (items.size >= maxItems) break;
     const type = entry.initiatorType || 'resource';
     if (['css', 'img', 'image', 'audio', 'video', 'font'].includes(type)) continue;
     add(entry.name, type === 'iframe' ? 'document' : type === 'script' ? 'script' : 'resource');
@@ -292,7 +352,7 @@ function collectPageCodeResources() {
 
   return {
     url: location.href,
-    html: '<!DOCTYPE html>\n' + document.documentElement.outerHTML,
+    html: ('<!DOCTYPE html>\n' + document.documentElement.outerHTML).slice(0, 2 * 1024 * 1024),
     items: Array.from(items.values())
   };
 }
@@ -509,75 +569,6 @@ function extractSourceMapSources(mapText, mapUrl) {
     if (out.length >= 120) break;
   }
   return out;
-}
-
-async function runScan() {
-  if (scanning) return;
-  scanning = true;
-  perFileResults = [];
-  els.results.innerHTML = '';
-  els.riskLevel.textContent = '扫描中…';
-  els.progress.textContent = '初始化';
-  els.progressSub.textContent = '';
-
-  const resp = await chrome.runtime.sendMessage({ type: 'GET_SCRIPTS', tabId: targetTabId });
-  const scripts = resp?.scripts || [];
-
-  try {
-    const tab = await chrome.tabs.get(targetTabId);
-    els.origin.textContent = tab.url || '';
-  } catch { /* ignore */ }
-
-  if (scripts.length === 0) {
-    els.results.innerHTML = '<div class="empty">未发现脚本，请回到目标页面让插件抓取后再扫描。</div>';
-    els.riskLevel.textContent = '无数据';
-    scanning = false;
-    return;
-  }
-
-  let done = 0;
-  for (const s of scripts) {
-    done++;
-    els.progress.textContent = `${done} / ${scripts.length}`;
-    els.progressSub.textContent = s.inline ? '内联脚本' : truncate(s.url, 80);
-
-    let source = '', fetchError = null;
-    if (s.inline) {
-      source = s.content || '';
-    } else {
-      try {
-        const res = await fetch(s.url, { credentials: 'omit' });
-        source = await res.text();
-      } catch (err) { fetchError = err.message; }
-    }
-
-    if (fetchError) {
-      perFileResults.push({
-        file: s.url, inline: false, size: 0,
-        findings: [], stats: emptyStats(), error: fetchError
-      });
-      updateAggregate(); renderResults();
-      continue;
-    }
-
-    const result = self.JS_EXTRACTOR_ANALYZER.analyzeSource(source, { url: s.url });
-    perFileResults.push({
-      file: s.inline ? `[内联] ${s.url}` : s.url,
-      inline: !!s.inline,
-      size: source.length,
-      findings: result.findings,
-      stats: result.stats,
-      source
-    });
-
-    updateAggregate(); renderResults();
-    await new Promise((r) => setTimeout(r, 0));
-  }
-
-  els.progress.textContent = `完成 ${scripts.length}`;
-  const totalFindings = perFileResults.reduce((a, f) => a + f.findings.length, 0);
-  els.progressSub.textContent = `${totalFindings} 条 finding`;
-  scanning = false;
 }
 
 function emptyStats() {
@@ -876,8 +867,7 @@ async function exportJson() {
     }))
   };
   const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' });
-  const url = URL.createObjectURL(blob);
-  await chrome.downloads.download({ url, filename: `js-extractor/scan-report-${Date.now()}.json`, saveAs: true });
+  await downloadReportBlob(blob, `scan-report-${Date.now()}.json`);
 }
 
 async function exportMd() {
@@ -931,6 +921,14 @@ async function exportMd() {
     }
   }
   const blob = new Blob([lines.join('\n')], { type: 'text/markdown' });
+  await downloadReportBlob(blob, `scan-report-${Date.now()}.md`);
+}
+
+async function downloadReportBlob(blob, filename) {
   const url = URL.createObjectURL(blob);
-  await chrome.downloads.download({ url, filename: `js-extractor/scan-report-${Date.now()}.md`, saveAs: true });
+  try {
+    await chrome.downloads.download({ url, filename: `js-extractor/${filename}`, saveAs: true });
+  } finally {
+    setTimeout(() => URL.revokeObjectURL(url), 1500);
+  }
 }

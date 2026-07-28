@@ -373,11 +373,15 @@ function confirmAction(title, text, onOk) {
 async function exportJson() {
   const blob = new Blob([JSON.stringify(latest || {}, null, 2)], { type: 'application/json' });
   const url = URL.createObjectURL(blob);
-  await chrome.downloads.download({
-    url,
-    filename: `js-extractor/vue-runtime-${Date.now()}.json`,
-    saveAs: true
-  });
+  try {
+    await chrome.downloads.download({
+      url,
+      filename: `js-extractor/vue-runtime-${Date.now()}.json`,
+      saveAs: true
+    });
+  } finally {
+    setTimeout(() => URL.revokeObjectURL(url), 1500);
+  }
 }
 
 function setStatus(msg, error = false) {

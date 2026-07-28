@@ -4,6 +4,8 @@
   const CODE_EXT = /\.(?:js|mjs|cjs|jsx|ts|tsx|vue|svelte|json|map|html?|xml|txt)(?:[?#]|$)/i;
   const SKIP_EXT = /\.(?:css|png|jpe?g|gif|webp|avif|bmp|ico|svg|mp4|webm|mp3|wav|ogg|woff2?|ttf|otf|eot)(?:[?#]|$)/i;
   const SAFE_METHODS = ['GET', 'HEAD', 'OPTIONS'];
+  const SOURCE_FETCH_TIMEOUT_MS = 12000;
+  const SOURCE_MAX_BYTES = 6 * 1024 * 1024;
 
   function normalizeEndpoint(raw, baseUrl) {
     const value = String(raw || '').trim();
@@ -587,76 +589,81 @@
   async function runAudit() {
     if (state.running) return;
     state.running = true;
-    state.stopped = false;
-    state.files = [];
-    state.apis = new Map();
-    state.findings = [];
-    state.apiTests = [];
-    state.score = 0;
-    state.verifyingIds.clear();
-    state._seen = new Set();
-    renderAll();
+    try {
+      state.stopped = false;
+      state.files = [];
+      state.apis = new Map();
+      state.findings = [];
+      state.apiTests = [];
+      state.score = 0;
+      state.verifyingIds.clear();
+      state._seen = new Set();
+      renderAll();
 
-    const maxDepth = clamp(Number(els.depth.value || 2), 1, 4);
-    const concurrency = clamp(Number(els.concurrency.value || 4), 1, 8);
-    const initial = await collectInitialTargets();
-    const queue = [];
-    const seen = new Set();
-    const enqueue = (item) => {
-      if (!item?.url) return;
-      const key = item.inline ? `inline:${item.url}` : item.url;
-      if (seen.has(key) || queue.length > 700) return;
-      seen.add(key);
-      queue.push(item);
-    };
-
-    enqueue({ url: `[page] ${initial.url}`, inline: true, content: initial.html || '', depth: 0, kind: 'document' });
-    for (const item of initial.resources || []) enqueue({ ...item, depth: 0 });
-    for (const item of initial.scripts || []) enqueue({ ...item, depth: 0, kind: item.inline ? 'inline' : 'script' });
-    for (const link of initial.links || []) enqueue({ url: link, depth: 1, kind: 'document' });
-
-    let cursor = 0, active = 0, done = 0;
-    await new Promise((resolve) => {
-      const pump = () => {
-        if (state.stopped) {
-          if (active === 0) resolve();
-          return;
-        }
-        while (active < concurrency && cursor < queue.length) {
-          const item = queue[cursor++];
-          active++;
-          processCodeItem(item, enqueue, maxDepth)
-            .catch((err) => addAuditFinding({
-              severity: 'info',
-              type: 'fetch',
-              title: '源码资源读取失败',
-              target: item.url,
-              evidence: err.message,
-              confidence: 'suspected'
-            }))
-            .finally(() => {
-              done++;
-              active--;
-              setProgress(`源码审计 ${done}/${queue.length}`);
-              renderAll();
-              if (cursor >= queue.length && active === 0) resolve();
-              else pump();
-            });
-        }
+      const maxDepth = clamp(Number(els.depth.value || 2), 1, 4);
+      const concurrency = clamp(Number(els.concurrency.value || 4), 1, 8);
+      const initial = await collectInitialTargets();
+      const queue = [];
+      const seen = new Set();
+      const enqueue = (item) => {
+        if (!item?.url) return;
+        const key = item.inline ? `inline:${item.url}` : item.url;
+        if (seen.has(key) || queue.length >= 700) return;
+        seen.add(key);
+        queue.push(item);
       };
-      pump();
-    });
 
-    if (!state.stopped && els.apiTest.checked) {
-      await runApiTests(concurrency, {
-        methods: getSelectedApiMethods(),
-        body: getApiBody()
+      enqueue({ url: `[page] ${initial.url}`, inline: true, content: initial.html || '', depth: 0, kind: 'document' });
+      for (const item of initial.resources || []) enqueue({ ...item, depth: 0 });
+      for (const item of initial.scripts || []) enqueue({ ...item, depth: 0, kind: item.inline ? 'inline' : 'script' });
+      for (const link of initial.links || []) enqueue({ url: link, depth: 1, kind: 'document' });
+
+      let cursor = 0, active = 0, done = 0;
+      await new Promise((resolve) => {
+        const pump = () => {
+          if (state.stopped) {
+            if (active === 0) resolve();
+            return;
+          }
+          while (active < concurrency && cursor < queue.length) {
+            const item = queue[cursor++];
+            active++;
+            processCodeItem(item, enqueue, maxDepth)
+              .catch((err) => addAuditFinding({
+                severity: 'info',
+                type: 'fetch',
+                title: '源码资源读取失败',
+                target: item.url,
+                evidence: err.message,
+                confidence: 'suspected'
+              }))
+              .finally(() => {
+                done++;
+                active--;
+                setProgress(`源码审计 ${done}/${queue.length}`);
+                renderAll();
+                if (cursor >= queue.length && active === 0) resolve();
+                else pump();
+              });
+          }
+        };
+        pump();
       });
+
+      if (!state.stopped && els.apiTest.checked) {
+        await runApiTests(concurrency, {
+          methods: getSelectedApiMethods(),
+          body: getApiBody()
+        });
+      }
+      updateScore();
+      renderAll();
+      setProgress(state.stopped ? '已停止' : '完成');
+    } catch (err) {
+      setProgress(`审计失败，可重新开始：${err?.message || String(err)}`, true);
+    } finally {
+      state.running = false;
     }
-    updateScore();
-    renderAll();
-    setProgress(state.stopped ? '已停止' : '完成');
-    state.running = false;
   }
 
   async function collectInitialTargets() {
@@ -676,6 +683,8 @@
   }
 
   function collectPageAuditSnapshot() {
+    const maxResources = 700;
+    const maxLinks = 80;
     const resources = new Map();
     const links = new Set();
     const addResource = (raw, kind = 'resource') => {
@@ -688,18 +697,27 @@
         }
       } catch { /* ignore */ }
     };
-    for (const el of document.querySelectorAll('script[src]')) addResource(el.src || el.getAttribute('src'), 'script');
-    for (const el of document.querySelectorAll('iframe[src], frame[src]')) addResource(el.src || el.getAttribute('src'), 'document');
+    for (const el of document.querySelectorAll('script[src]')) {
+      addResource(el.src || el.getAttribute('src'), 'script');
+      if (resources.size >= maxResources) break;
+    }
+    for (const el of document.querySelectorAll('iframe[src], frame[src]')) {
+      if (resources.size >= maxResources) break;
+      addResource(el.src || el.getAttribute('src'), 'document');
+    }
     for (const el of document.querySelectorAll('link[href]')) {
+      if (resources.size >= maxResources) break;
       const rel = (el.rel || '').toLowerCase();
       if (rel.includes('stylesheet') || rel.includes('icon')) continue;
       addResource(el.href || el.getAttribute('href'), rel.includes('manifest') ? 'manifest' : 'resource');
     }
     for (const entry of performance.getEntriesByType('resource')) {
+      if (resources.size >= maxResources) break;
       if (['css', 'img', 'image', 'font', 'media', 'audio', 'video'].includes(entry.initiatorType)) continue;
       addResource(entry.name, entry.initiatorType === 'script' ? 'script' : 'resource');
     }
     for (const a of document.querySelectorAll('a[href]')) {
+      if (links.size >= maxLinks) break;
       try {
         const url = new URL(a.href || a.getAttribute('href'), location.href);
         if (url.origin === location.origin && !/\.(?:css|png|jpe?g|gif|webp|svg|ico|woff2?|ttf|mp4|mp3|zip|rar|pdf)(?:[?#]|$)/i.test(url.href)) {
@@ -709,9 +727,9 @@
     }
     return {
       url: location.href,
-      html: '<!DOCTYPE html>\n' + document.documentElement.outerHTML,
+      html: ('<!DOCTYPE html>\n' + document.documentElement.outerHTML).slice(0, 2 * 1024 * 1024),
       resources: Array.from(resources.values()),
-      links: Array.from(links).slice(0, 80)
+      links: Array.from(links)
     };
   }
 
@@ -748,14 +766,47 @@
   async function fetchText(url) {
     const target = new URL(url, state.baseUrl);
     const sameOrigin = target.origin === state.origin;
-    const res = await fetch(target.href, {
-      credentials: sameOrigin ? 'include' : 'omit',
-      cache: 'force-cache',
-      referrer: state.baseUrl
-    });
-    if (!res.ok) throw new Error(`HTTP ${res.status}`);
-    const text = await res.text();
-    return text.length > 6 * 1024 * 1024 ? text.slice(0, 6 * 1024 * 1024) : text;
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), SOURCE_FETCH_TIMEOUT_MS);
+    try {
+      const res = await fetch(target.href, {
+        credentials: sameOrigin ? 'include' : 'omit',
+        cache: 'force-cache',
+        referrer: state.baseUrl,
+        signal: controller.signal
+      });
+      if (!res.ok) {
+        await res.body?.cancel?.().catch(() => {});
+        throw new Error(`HTTP ${res.status}`);
+      }
+      return await readResponseTextLimited(res, SOURCE_MAX_BYTES);
+    } finally {
+      clearTimeout(timer);
+    }
+  }
+
+  async function readResponseTextLimited(response, maxBytes) {
+    const reader = response.body?.getReader?.();
+    if (!reader) return (await response.text()).slice(0, maxBytes);
+    const decoder = new TextDecoder();
+    let total = 0;
+    let text = '';
+    try {
+      while (total < maxBytes) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        const remaining = maxBytes - total;
+        const chunk = value.byteLength > remaining ? value.subarray(0, remaining) : value;
+        total += chunk.byteLength;
+        text += decoder.decode(chunk, { stream: total < maxBytes });
+        if (value.byteLength > remaining) break;
+      }
+      text += decoder.decode();
+      if (total >= maxBytes) await reader.cancel().catch(() => {});
+      return text;
+    } finally {
+      try { reader.releaseLock(); } catch {}
+    }
   }
 
   function analyzeCodeText(text, file) {
@@ -930,7 +981,9 @@
       const allow = res.headers.get('allow') || '';
       let preview = '';
       if (method !== 'HEAD' && /(?:json|text|javascript|xml|html|plain)/i.test(ct)) {
-        preview = (await res.text()).slice(0, 800);
+        preview = (await readResponseTextLimited(res, 8 * 1024)).slice(0, 800);
+      } else {
+        await res.body?.cancel?.().catch(() => {});
       }
       return { status: res.status, ok: res.ok, redirected: res.redirected, type: res.type, contentType: ct, allow, preview };
     } catch (err) {
@@ -1813,8 +1866,7 @@
   async function exportJson() {
     const payload = buildReport();
     const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' });
-    const url = URL.createObjectURL(blob);
-    await chrome.downloads.download({ url, filename: `js-extractor/vuln-audit-${Date.now()}.json`, saveAs: true });
+    await downloadReportBlob(blob, `vuln-audit-${Date.now()}.json`);
   }
 
   async function exportMd() {
@@ -1850,8 +1902,16 @@
       if (packages) lines.push(`  - 返回包:\n\`\`\`\n${packages.slice(0, 2200)}\n\`\`\``);
     }
     const blob = new Blob([lines.join('\n')], { type: 'text/markdown' });
+    await downloadReportBlob(blob, `vuln-audit-${Date.now()}.md`);
+  }
+
+  async function downloadReportBlob(blob, filename) {
     const url = URL.createObjectURL(blob);
-    await chrome.downloads.download({ url, filename: `js-extractor/vuln-audit-${Date.now()}.md`, saveAs: true });
+    try {
+      await chrome.downloads.download({ url, filename: `js-extractor/${filename}`, saveAs: true });
+    } finally {
+      setTimeout(() => URL.revokeObjectURL(url), 1500);
+    }
   }
 
   function buildReport() {
