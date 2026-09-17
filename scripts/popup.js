@@ -547,6 +547,7 @@ async function applyCopyUnlock(enabled) {
       host: resp.host || currentTabHost || '',
       options: resp.options || options,
       frames: Number(resp.frames || 0),
+      warning: resp.warning || '',
       scanned: Number(resp.scanned || 0),
       changed: Number(resp.changed || 0),
       blockedListeners: Number(resp.blockedListeners || 0),
@@ -556,7 +557,7 @@ async function applyCopyUnlock(enabled) {
     };
     updateCopyUnlockUi(result);
     if (enabled) {
-      els.copyStatus.textContent = `已启用 · ${result.frames} 个 frame · 处理 ${result.changed} 处限制 · 刷新后强效预加载`;
+      els.copyStatus.textContent = `已启用 · 可直接选择文字复制 · ${result.frames} 个 frame${result.hostEnabled ? ' · 刷新后自动启用' : ''}${result.warning ? ' · ' + result.warning : ''}`;
       setStatus('已对当前页面启用解除复制');
     } else {
       els.copyStatus.textContent = '已关闭当前页面解除复制';

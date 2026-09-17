@@ -1,0 +1,10 @@
+/* Applied as a USER stylesheet while copy unlock is enabled. */
+html, body, * {
+  -webkit-user-select: text !important;
+  user-select: text !important;
+  -webkit-touch-callout: default !important;
+}
+input, textarea, select, [contenteditable], [role="textbox"] {
+  -webkit-user-select: auto !important;
+  user-select: auto !important;
+}

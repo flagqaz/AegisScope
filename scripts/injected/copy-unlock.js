@@ -2,7 +2,10 @@
 // resource-profile:flagqaz/AegisScope:fbfba2bd3a1243a8:copy-unlock
 (() => {
   const API_NAME = '__AEGISSCOPE_COPY_UNLOCK__';
-  if (window[API_NAME]) return;
+  const API_VERSION = '2.2.9';
+  if (window[API_NAME]?.version === API_VERSION) return;
+  // Updating an extension does not remove an older script from open documents.
+  try { window[API_NAME]?.apply({ enabled: false }); } catch {}
 
   const STYLE_ID = 'aegisscope-copy-unlock-style';
   const LOCAL_AUTO_KEY = 'aegisscope_copy_unlock_auto_v1';
@@ -56,15 +59,15 @@
     observer: null,
     rescanTimer: null,
     listeners: [],
-    originals: new WeakMap(),
+    originals: new Map(),
+    styles: new Map(),
+    pendingRoots: new Set(),
+    scanTimer: null,
     originalPreventDefault: null,
     originalStopPropagation: null,
     originalStopImmediatePropagation: null,
-    originalAddEventListener: null,
-    originalRemoveEventListener: null,
     patchedPreventDefault: false,
     patchedEventFlow: false,
-    listenerWrappers: new WeakMap(),
     scanned: 0,
     changed: 0,
     blockedListeners: 0,
@@ -85,17 +88,17 @@
     const key = String(event.key || '').toLowerCase();
     if (event.type === 'contextmenu') return true;
     if (!['keydown', 'keypress', 'keyup'].includes(event.type)) return true;
-    return event.ctrlKey || event.metaKey || key === 'contextmenu' || key === 'apps';
+    return ((event.ctrlKey || event.metaKey) && ['a', 'c', 'x', 'v', 'insert'].includes(key)) || key === 'contextmenu' || key === 'apps';
   }
 
   function shouldProtectEvent(event) {
-    if (!state.enabled || !event) return false;
+    if (!state.enabled || !event || !PROTECTED_EVENTS.has(event.type)) return false;
     if (!isShortcutEvent(event)) return false;
-    if (!state.options.aggressive && ['mousemove', 'mouseenter', 'touchmove'].includes(event.type)) return false;
+    if (!state.options.aggressive && AGGRESSIVE_EVENTS.includes(event.type)) return false;
     if (event.type === 'paste' && isEditableTarget(event.target)) return true;
     if (['keydown', 'keypress', 'keyup'].includes(event.type)) {
       const key = String(event.key || '').toLowerCase();
-      return event.ctrlKey || event.metaKey || key === 'contextmenu' || key === 'apps';
+      return ((event.ctrlKey || event.metaKey) && ['a', 'c', 'x', 'v', 'insert'].includes(key)) || key === 'contextmenu' || key === 'apps';
     }
     return true;
   }
@@ -439,13 +442,15 @@
     } catch {}
   }
 
-  function installStyle() {
-    let style = document.getElementById(STYLE_ID);
+  function installStyle(root = document) {
+    let style = state.styles.get(root);
+    if (style?.isConnected) return;
+    style = root.querySelector?.('#' + STYLE_ID);
     if (!style) {
       style = document.createElement('style');
       style.id = STYLE_ID;
       style.textContent = `
-        html, body, body * {
+        :host, html, body, * {
           -webkit-user-select: text !important;
           -moz-user-select: text !important;
           -ms-user-select: text !important;
@@ -465,9 +470,11 @@
           user-select: text !important;
         }
       `;
-      (document.documentElement || document.head || document.body)?.appendChild(style);
+      const parent = root === document ? document.documentElement : root;
+      parent?.appendChild(style);
     }
-    state.style = style;
+    state.styles.set(root, style);
+    if (root === document) state.style = style;
   }
 
   function rememberElement(element) {
@@ -509,7 +516,7 @@
       changed = true;
     }
     const style = element.getAttribute?.('style') || '';
-    if (/user-select\s*:\s*none|-webkit-user-select\s*:\s*none|pointer-events\s*:\s*none/i.test(style)) {
+    if (/(?:^|;)\s*(?:-webkit-|-moz-|-ms-)?user-select\s*:\s*none/i.test(style)) {
       try {
         ensureRecord();
         element.style.setProperty('user-select', 'text', 'important');
@@ -517,7 +524,14 @@
         changed = true;
       } catch {}
     }
-    if (element.shadowRoot) scanRoot(element.shadowRoot, 3000);
+    if (element.shadowRoot) {
+      const fresh = !state.styles.has(element.shadowRoot);
+      installStyle(element.shadowRoot);
+      if (fresh) {
+        observeRoot(element.shadowRoot);
+        scanRoot(element.shadowRoot, 3000);
+      }
+    }
     if (changed) state.changed += 1;
   }
 
@@ -552,6 +566,8 @@
       while (element && depth < 4) {
         if (!seen.has(element) && isLikelyBlockingOverlay(element)) {
           seen.add(element);
+          if (element.style.getPropertyValue('pointer-events') === 'none' &&
+              element.style.getPropertyPriority('pointer-events') === 'important') continue;
           rememberElement(element);
           try {
             element.style.setProperty('pointer-events', 'none', 'important');
@@ -595,26 +611,17 @@
   }
 
   function installListeners() {
-    const events = state.options.aggressive ? BASE_EVENTS.concat(AGGRESSIVE_EVENTS) : BASE_EVENTS;
-    const targets = [window, document, document.documentElement, document.body].filter(Boolean);
+    const events = BASE_EVENTS.concat(AGGRESSIVE_EVENTS);
+    const targets = [window];
     for (const target of targets) {
       for (const type of events) {
         if (state.listeners.some(([itemTarget, itemType]) => itemTarget === target && itemType === type)) continue;
         try {
-          target.addEventListener(type, stopPageInterference, true);
+          target.addEventListener(type, stopPageInterference, { capture: true, passive: false });
           state.listeners.push([target, type]);
         } catch {}
       }
     }
-  }
-
-  function removeListeners() {
-    for (const [target, type] of state.listeners) {
-      try {
-        target.removeEventListener(type, stopPageInterference, true);
-      } catch {}
-    }
-    state.listeners = [];
   }
 
   function getAutoEnabled() {
@@ -632,123 +639,110 @@
     } catch {}
   }
 
+  function patchEventMethod(name, slot) {
+    const original = Event.prototype[name];
+    const guarded = function (...args) {
+      if (shouldProtectEvent(this)) return;
+      return original.apply(this, args);
+    };
+    state[slot] = original;
+    state[slot + 'Guard'] = guarded;
+    Event.prototype[name] = guarded;
+  }
+
+  function restoreEventMethod(name, slot) {
+    if (Event.prototype[name] === state[slot + 'Guard']) Event.prototype[name] = state[slot];
+    state[slot] = null;
+    state[slot + 'Guard'] = null;
+  }
+
   function patchPreventDefault() {
     if (state.patchedPreventDefault) return;
-    state.originalPreventDefault = Event.prototype.preventDefault;
-    Event.prototype.preventDefault = function aegisscopePreventDefaultGuard() {
-      if (shouldProtectEvent(this)) return;
-      return state.originalPreventDefault.apply(this, arguments);
-    };
+    patchEventMethod('preventDefault', 'originalPreventDefault');
     state.patchedPreventDefault = true;
   }
 
   function restorePreventDefault() {
-    if (!state.patchedPreventDefault || !state.originalPreventDefault) return;
-    try {
-      Event.prototype.preventDefault = state.originalPreventDefault;
-    } catch {}
-    state.originalPreventDefault = null;
+    if (!state.patchedPreventDefault) return;
+    restoreEventMethod('preventDefault', 'originalPreventDefault');
     state.patchedPreventDefault = false;
-  }
-
-  function getWrappedListener(type, listener) {
-    if (!listener || listener === stopPageInterference || !PROTECTED_EVENTS.has(type)) return listener;
-    if (typeof listener !== 'function' && typeof listener.handleEvent !== 'function') return listener;
-    let byType = state.listenerWrappers.get(listener);
-    if (!byType) {
-      byType = new Map();
-      state.listenerWrappers.set(listener, byType);
-    }
-    if (byType.has(type)) return byType.get(type);
-    const wrapped = function aegisscopeListenerGate(event) {
-      if (shouldProtectEvent(event)) {
-        state.blockedListeners += 1;
-        return;
-      }
-      if (typeof listener === 'function') return listener.apply(this, arguments);
-      return listener.handleEvent.call(listener, event);
-    };
-    byType.set(type, wrapped);
-    return wrapped;
-  }
-
-  function getStoredWrappedListener(type, listener) {
-    if (!listener || (typeof listener !== 'function' && typeof listener !== 'object')) return listener;
-    return state.listenerWrappers.get(listener)?.get(type) || listener;
   }
 
   function patchEventFlow() {
     if (state.patchedEventFlow) return;
-    state.originalStopPropagation = Event.prototype.stopPropagation;
-    state.originalStopImmediatePropagation = Event.prototype.stopImmediatePropagation;
-    state.originalAddEventListener = EventTarget.prototype.addEventListener;
-    state.originalRemoveEventListener = EventTarget.prototype.removeEventListener;
-
-    Event.prototype.stopPropagation = function aegisscopeStopPropagationGuard() {
-      if (shouldProtectEvent(this)) return;
-      return state.originalStopPropagation.apply(this, arguments);
-    };
-    Event.prototype.stopImmediatePropagation = function aegisscopeStopImmediatePropagationGuard() {
-      if (shouldProtectEvent(this)) return;
-      return state.originalStopImmediatePropagation.apply(this, arguments);
-    };
-    EventTarget.prototype.addEventListener = function aegisscopeAddEventListener(type, listener, options) {
-      const eventType = String(type || '').toLowerCase();
-      const guarded = state.enabled ? getWrappedListener(eventType, listener) : listener;
-      return state.originalAddEventListener.call(this, type, guarded, options);
-    };
-    EventTarget.prototype.removeEventListener = function aegisscopeRemoveEventListener(type, listener, options) {
-      const eventType = String(type || '').toLowerCase();
-      const guarded = getStoredWrappedListener(eventType, listener);
-      return state.originalRemoveEventListener.call(this, type, guarded, options);
-    };
+    patchEventMethod('stopPropagation', 'originalStopPropagation');
+    patchEventMethod('stopImmediatePropagation', 'originalStopImmediatePropagation');
     state.patchedEventFlow = true;
   }
 
   function restoreEventFlow() {
     if (!state.patchedEventFlow) return;
-    try {
-      Event.prototype.stopPropagation = state.originalStopPropagation;
-      Event.prototype.stopImmediatePropagation = state.originalStopImmediatePropagation;
-      EventTarget.prototype.addEventListener = state.originalAddEventListener;
-      EventTarget.prototype.removeEventListener = state.originalRemoveEventListener;
-    } catch {}
-    state.originalStopPropagation = null;
-    state.originalStopImmediatePropagation = null;
-    state.originalAddEventListener = null;
-    state.originalRemoveEventListener = null;
-    state.listenerWrappers = new WeakMap();
+    restoreEventMethod('stopPropagation', 'originalStopPropagation');
+    restoreEventMethod('stopImmediatePropagation', 'originalStopImmediatePropagation');
     state.patchedEventFlow = false;
   }
 
+  function observeRoot(root) {
+    state.observer?.observe(root, {
+      subtree: true, childList: true, attributes: true,
+      attributeFilter: ['style', 'class', 'unselectable', ...INLINE_PROPS]
+    });
+  }
+
+  function queueScan(root) {
+    if (!state.enabled || !root) return;
+    // Bound queued work and yield between batches on large, frequently updating pages.
+    if (state.pendingRoots.size < 200) state.pendingRoots.add(root);
+    if (state.scanTimer !== null) return;
+    state.scanTimer = setTimeout(flushScans, 32);
+  }
+
+  function flushScans() {
+    state.scanTimer = null;
+    if (!state.enabled) return;
+    const started = performance.now();
+    for (const root of state.pendingRoots) {
+      state.pendingRoots.delete(root);
+      if (root.isConnected) scanRoot(root, 1200);
+      if (performance.now() - started > 7) break;
+    }
+    for (const [root, style] of state.styles) {
+      if (root !== document && !root.isConnected) {
+        style.remove();
+        state.styles.delete(root);
+      } else installStyle(root);
+    }
+    if (state.pendingRoots.size) state.scanTimer = setTimeout(flushScans, 32);
+  }
+
   function installObserver() {
-    if (state.observer) state.observer.disconnect();
+    state.observer?.disconnect();
     state.observer = new MutationObserver((mutations) => {
+      if (!state.enabled) return;
       for (const mutation of mutations) {
         for (const node of mutation.addedNodes || []) {
-          if (node.nodeType === Node.ELEMENT_NODE) scanRoot(node, 1200);
+          if (node.nodeType === Node.ELEMENT_NODE) queueScan(node);
         }
-        if (mutation.type === 'attributes' && mutation.target) unlockElement(mutation.target);
+        if (mutation.type === 'attributes') queueScan(mutation.target);
       }
+      // Also recover a style removed by a head/body rewrite, including document_start.
+      if (!state.styles.get(document)?.isConnected) queueScan(document.documentElement);
     });
-    const root = document.documentElement || document.body;
-    if (root) {
-      state.observer.observe(root, {
-        subtree: true,
-        childList: true,
-        attributes: true,
-        attributeFilter: ['style', 'class', 'unselectable', 'draggable']
-      });
-    }
+    observeRoot(document);
+    for (const root of state.styles.keys()) if (root !== document) observeRoot(root);
   }
 
   function startRescanTimer() {
     stopRescanTimer();
-    if (!state.options.aggressive) return;
     state.rescanTimer = window.setInterval(() => {
       if (!state.enabled) return;
+      for (const element of state.originals.keys()) {
+        if (!element.isConnected) state.originals.delete(element);
+      }
+      if (!state.options.aggressive) return;
       const run = () => {
         if (!state.enabled) return;
+        installStyle();
         scanRoot(document.documentElement || document, 6000);
         neutralizeBlockingOverlays();
       };
@@ -771,7 +765,7 @@
     state.options = {
       aggressive: options.aggressive !== false
     };
-    if (options.persist) setAutoEnabled(true);
+    setAutoEnabled(Boolean(options.persist));
     state.startedAt = Date.now();
     state.scanned = 0;
     state.changed = 0;
@@ -794,7 +788,10 @@
   function disable() {
     state.enabled = false;
     setAutoEnabled(false);
-    removeListeners();
+    // Keep the early window listeners dormant so re-enabling preserves capture order.
+    if (state.scanTimer !== null) clearTimeout(state.scanTimer);
+    state.scanTimer = null;
+    state.pendingRoots.clear();
     restorePreventDefault();
     restoreEventFlow();
     stopRescanTimer();
@@ -802,24 +799,13 @@
       state.observer.disconnect();
       state.observer = null;
     }
-    if (state.style?.parentNode) state.style.parentNode.removeChild(state.style);
+    for (const style of state.styles.values()) style.remove();
+    state.styles.clear();
     state.style = null;
-    scanRestore(document.documentElement || document);
-    state.originals = new WeakMap();
+    for (const element of state.originals.keys()) restoreElement(element);
+    state.originals.clear();
+    state.lastPayload = null;
     return getState();
-  }
-
-  function scanRestore(root) {
-    if (!root) return;
-    if (root.nodeType === Node.ELEMENT_NODE) restoreElement(root);
-    const walker = document.createTreeWalker(root, NodeFilter.SHOW_ELEMENT);
-    let count = 0;
-    while (count < 22000) {
-      const node = walker.nextNode();
-      if (!node) break;
-      restoreElement(node);
-      count += 1;
-    }
   }
 
   function getState() {
@@ -837,6 +823,7 @@
   }
 
   window[API_NAME] = {
+    version: API_VERSION,
     apply(payload = {}) {
       return payload.enabled ? enable(payload.options || {}) : disable();
     },
@@ -845,6 +832,9 @@
       return collectCopyPayload();
     }
   };
+
+  // Register before page scripts; dormant handlers do no DOM work until enabled.
+  installListeners();
 
   if (getAutoEnabled()) {
     enable({ aggressive: true, persist: true });

@@ -32,6 +32,7 @@ let latest = null;
 let currentTab = null;
 let earlyTarget = null;
 let earlyEnabled = false;
+let navigating = false;
 
 init().catch((err) => setStatus(`初始化失败: ${err.message}`, true));
 
@@ -98,11 +99,7 @@ async function enableEarlyMode() {
 }
 
 async function disableEarlyMode() {
-  if (!earlyTarget) return;
-  await unregisterEarlyContentScript();
-  const restored = await restoreEarlyRuntime();
-  await refreshEarlyMode();
-  setStatus(`增强模式已关闭，后续页面不再预注入。${restored?.restored != null ? `已恢复 ${restored.restored} 项。` : ''}`);
+  await restoreVueRuntime();
 }
 
 async function refreshTargetPage() {
@@ -131,9 +128,9 @@ async function registerEarlyContentScript() {
 }
 
 async function unregisterEarlyContentScript() {
-  try {
-    await chrome.scripting.unregisterContentScripts({ ids: [earlyTarget.id] });
-  } catch {}
+  if (!earlyTarget) return;
+  const registered = await chrome.scripting.getRegisteredContentScripts({ ids: [earlyTarget.id] });
+  if (registered.length) await chrome.scripting.unregisterContentScripts({ ids: [earlyTarget.id] });
 }
 
 async function injectEarlyScriptNow() {
@@ -144,18 +141,6 @@ async function injectEarlyScriptNow() {
       files: ['scripts/injected/vue-early-guard.js']
     });
   } catch {}
-}
-
-async function restoreEarlyRuntime() {
-  try {
-    const [result] = await chrome.scripting.executeScript({
-      target: { tabId: targetTabId },
-      world: 'MAIN',
-      func: () => window.__AEGISSCOPE_VUE_EARLY_GUARD__?.restore?.()
-    });
-    return result?.result || null;
-  } catch {}
-  return null;
 }
 
 function getEarlyTarget(url) {
@@ -190,15 +175,23 @@ async function mutateVueRuntime(action) {
 
 async function restoreVueRuntime() {
   setStatus('正在恢复 Vue 运行时...');
-  const result = await runInPage(mutatePageVueRuntime, ['restore']);
-  const early = await restoreEarlyRuntime();
-  latest = await runInPage(analyzeVueRuntime);
-  render(latest);
-  const earlyText = early?.restored != null ? ` / 预注入恢复 ${early.restored}` : '';
-  setStatus(result?.ok ? `${result.message}${earlyText}` : `恢复失败: ${result?.error || 'unknown'}${earlyText}`, !result?.ok);
+  try {
+    await unregisterEarlyContentScript();
+    const result = await runInPage(mutatePageVueRuntime, ['restore']);
+    if (!result?.ok) throw new Error(result?.error || '页面未返回恢复结果');
+    await refreshEarlyMode();
+    latest = await runInPage(analyzeVueRuntime);
+    render(latest);
+    setStatus(`增强模式已关闭，运行时已恢复 ${result.changed} 项。`);
+  } catch (error) {
+    setStatus(`恢复失败: ${error?.message || String(error)}`, true);
+  }
 }
 
 async function runInPage(func, args = []) {
+  await chrome.scripting.executeScript({
+    target: { tabId: targetTabId }, world: 'MAIN', files: ['scripts/injected/vue-runtime.js']
+  });
   const [result] = await chrome.scripting.executeScript({
     target: { tabId: targetTabId },
     world: 'MAIN',
@@ -314,29 +307,40 @@ function resolveJumpPath(path) {
 }
 
 async function jumpToRoute(path) {
+  if (navigating) return;
   if (!isJumpableRoute(path)) {
     setStatus('该路由无法直接跳转。', true);
     return;
   }
   const targetPath = resolveJumpPath(path);
-  if (!targetPath) {
-    setStatus('已取消路由跳转。', true);
-    return;
+  if (!targetPath) { setStatus('已取消路由跳转。'); return; }
+  navigating = true;
+  els.routes.querySelectorAll('.jump').forEach((button) => { button.disabled = true; });
+  try {
+    setStatus(`正在跳转 ${targetPath}...`);
+    await runInPage(mutatePageVueRuntime, ['clearGuards']);
+    await runInPage(mutatePageVueRuntime, ['patchAuth']);
+    const result = await runInPage(navigateVueRoute, [targetPath]);
+    // Do not reload the page after a guard rejection: that reinstalls all guards.
+    latest = await runInPage(analyzeVueRuntime);
+    render(latest);
+    if (!result?.ok) {
+      setStatus(`跳转未完成：${result?.error || '页面未返回导航结果'}${result?.current ? ' / 当前 ' + result.current : ''}`, true);
+      return;
+    }
+    const current = latest?.router?.current?.fullPath || latest?.router?.current?.path;
+    if (current !== result.current) {
+      setStatus(`目标 ${targetPath} 随后被页面重定向至 ${current || '未知路由'}`, true);
+      return;
+    }
+    const method = result.method === 'vue4-runtime' ? 'Vue Router 4 兼容导航' : 'router.push';
+    setStatus(`已跳转 ${current} / ${method}`);
+  } catch (error) {
+    setStatus(`跳转失败：${error?.message || String(error)}`, true);
+  } finally {
+    navigating = false;
+    renderRoutes();
   }
-  setStatus(`正在处理前端守卫并跳转 ${targetPath}...`);
-  const guardResult = await runInPage(mutatePageVueRuntime, ['clearGuards']);
-  const authResult = await runInPage(mutatePageVueRuntime, ['patchAuth']);
-  const result = await runInPage(navigateVueRoute, [targetPath]);
-  if (result?.url) {
-    await chrome.tabs.update(targetTabId, { url: result.url });
-  }
-  await waitForTabSettled();
-  await new Promise((resolve) => setTimeout(resolve, 550));
-  await analyze();
-  const guardChanged = Number(guardResult?.changed || 0);
-  const authChanged = Number(authResult?.changed || 0);
-  const method = result?.ok && !result?.url ? result.method : 'URL fallback';
-  setStatus(`已跳转 ${targetPath} / ${method} / 清除守卫 ${guardChanged} / 修改鉴权 ${authChanged}`, false);
 }
 async function waitForTabSettled(timeout = 5000) {
   const start = Date.now();
@@ -386,7 +390,7 @@ async function exportJson() {
 
 function setStatus(msg, error = false) {
   els.status.textContent = msg;
-  els.status.style.color = error ? '#ff9f9f' : '#66f2c9';
+  els.status.style.color = error ? '#b42318' : '#087443';
 }
 
 function escapeHtml(str) {
@@ -409,7 +413,7 @@ function analyzeVueRuntime() {
       vue: vueInfo,
       router: router ? {
         detected: true,
-        mode: router.mode || router.history?.mode || router.options?.mode || 'unknown',
+        mode: window.__AEGISSCOPE_VUE_RUNTIME__.mode(router),
         source: routerHit?.source || 'runtime',
         hasCurrentRoute: !!router.currentRoute,
         current: currentRoute,
@@ -426,26 +430,7 @@ function analyzeVueRuntime() {
   }
 
   function findVueRoots() {
-    const out = [];
-    const seen = new Set();
-    const queue = [];
-    if (document.body) queue.push(document.body);
-    if (document.documentElement) queue.push(document.documentElement);
-    const app = document.getElementById('app');
-    if (app) queue.unshift(app);
-
-    let scanned = 0;
-    while (queue.length && scanned < 2200) {
-      const node = queue.shift();
-      scanned++;
-      if (!node || seen.has(node)) continue;
-      seen.add(node);
-      if (node.__vue_app__ || node.__vue__ || node._vnode) out.push(node);
-      if (node.children) {
-        for (const child of node.children) queue.push(child);
-      }
-    }
-    return out;
+    return window.__AEGISSCOPE_VUE_RUNTIME__.findRoots();
   }
 
   function analyzeVueRoots(roots) {
@@ -473,51 +458,7 @@ function analyzeVueRuntime() {
   }
 
   function findRouter(roots) {
-    for (const root of roots) {
-      const candidates = routerCandidatesFromRoot(root);
-      for (const item of candidates) {
-        if (isRouterLike(item.router)) {
-          return item;
-        }
-      }
-    }
-    const globals = [window.$router, window.router, window.__router, window.app?.config?.globalProperties?.$router];
-    for (const r of globals) {
-      if (isRouterLike(r)) {
-        return { router: r, source: 'global' };
-      }
-    }
-    return null;
-  }
-
-  function routerCandidatesFromRoot(root) {
-    const items = [];
-    const app = root.__vue_app__;
-    const vue = root.__vue__;
-    if (app) {
-      items.push({ router: app.config?.globalProperties?.$router, source: 'vue3 globalProperties' });
-      items.push({ router: app._instance?.proxy?.$router, source: 'vue3 proxy' });
-      items.push({ router: app._instance?.ctx?.$router, source: 'vue3 ctx' });
-      const provides = app._context?.provides || app._instance?.provides;
-      if (provides) {
-        for (const key of Reflect.ownKeys(provides)) {
-          const value = provides[key];
-          if (isRouterLike(value)) items.push({ router: value, source: `vue3 provide ${String(key)}` });
-        }
-      }
-    }
-    if (vue) {
-      items.push({ router: vue.$router, source: 'vue2 instance' });
-      items.push({ router: vue.$root?.$router, source: 'vue2 root' });
-      items.push({ router: vue._routerRoot?._router, source: 'vue2 routerRoot' });
-    }
-    return items;
-  }
-
-  function isRouterLike(obj) {
-    return !!obj && typeof obj === 'object' &&
-      (typeof obj.push === 'function' || typeof obj.replace === 'function') &&
-      (typeof obj.getRoutes === 'function' || Array.isArray(obj.options?.routes) || obj.matcher);
+    return window.__AEGISSCOPE_VUE_RUNTIME__.findRouter(roots);
   }
 
   function getRoutes(router) {
@@ -534,10 +475,11 @@ function analyzeVueRuntime() {
     return Array.from(new Set(routes)).slice(0, 1000);
   }
 
-  function flattenRoutes(routes, out = []) {
+  function flattenRoutes(routes, out = [], parent = '') {
     for (const route of routes || []) {
-      out.push(route);
-      if (Array.isArray(route.children)) flattenRoutes(route.children, out);
+      const path = route.path?.startsWith('/') ? route.path : `${parent}/${route.path || ''}`.replace(/\/{2,}/g, '/');
+      out.push({ ...route, path });
+      if (Array.isArray(route.children)) flattenRoutes(route.children, out, path);
     }
     return out;
   }
@@ -617,7 +559,7 @@ function analyzeVueRuntime() {
   }
 
   function getBaseInfo(router, routes) {
-    const configured = router?.options?.base || router?.history?.base || '';
+    const configured = window.__AEGISSCOPE_VUE_RUNTIME__.base(router);
     const baseTag = document.querySelector('base[href]')?.getAttribute('href') || '';
     return {
       configured: configured || '',
@@ -645,9 +587,7 @@ function analyzeVueRuntime() {
   }
 
   function inferRouterMode(router) {
-    const raw = String(router?.mode || router?.history?.mode || router?.history?.type || '');
-    if (/hash/i.test(raw) || /^#\/?/.test(location.hash)) return 'hash';
-    return 'history';
+    return window.__AEGISSCOPE_VUE_RUNTIME__.mode(router);
   }
 
   function buildRoutePreviewUrl(path, router, baseInfo) {
@@ -710,6 +650,13 @@ function analyzeVueRuntime() {
 
 function mutatePageVueRuntime(action) {
   try {
+    if (action === 'restore') {
+      // Stop early observers before touching either backup. Both layers preserve
+      // the first original value, including when early injection ran first.
+      const early = window.__AEGISSCOPE_VUE_EARLY_GUARD__?.restore?.();
+      const changed = (early?.restored || 0) + restoreRouteRuntime();
+      return { ok: true, message: `运行时已恢复 ${changed} 项`, changed, analysis: analyzeCurrent() };
+    }
     const analysis = analyzeCurrent();
     if (!analysis.ok || !analysis.router?.detected) {
       return { ok: false, error: '未发现 Vue Router 实例', analysis };
@@ -727,7 +674,6 @@ function mutatePageVueRuntime(action) {
       changed += patchRouteAuthMeta(ctx.routes);
       changed += installRuntimeBypass(ctx.router);
     }
-    else if (action === 'restore') changed = restoreRouteRuntime();
     else return { ok: false, error: `未知操作: ${action}`, analysis };
 
     return {
@@ -759,7 +705,7 @@ function mutatePageVueRuntime(action) {
         },
         router: router ? {
           detected: true,
-          mode: router.mode || router.history?.mode || router.options?.mode || 'unknown',
+          mode: window.__AEGISSCOPE_VUE_RUNTIME__.mode(router),
           source: 'runtime',
           hasCurrentRoute: !!router.currentRoute,
           preflight: !!router.__AEGISSCOPE_VUE_PREFLIGHT__
@@ -789,45 +735,11 @@ function mutatePageVueRuntime(action) {
   }
 
   function findVueRoots() {
-    const out = [];
-    const queue = [];
-    if (document.body) queue.push(document.body);
-    const app = document.getElementById('app');
-    if (app) queue.unshift(app);
-    const seen = new Set();
-    let scanned = 0;
-    while (queue.length && scanned < 2200) {
-      const node = queue.shift();
-      scanned++;
-      if (!node || seen.has(node)) continue;
-      seen.add(node);
-      if (node.__vue_app__ || node.__vue__ || node._vnode) out.push(node);
-      if (node.children) for (const child of node.children) queue.push(child);
-    }
-    return out;
+    return window.__AEGISSCOPE_VUE_RUNTIME__.findRoots();
   }
 
   function findRouter(roots) {
-    for (const root of roots) {
-      const candidates = [];
-      const app = root.__vue_app__;
-      const vue = root.__vue__;
-      if (app) {
-        candidates.push(app.config?.globalProperties?.$router, app._instance?.proxy?.$router, app._instance?.ctx?.$router);
-        const provides = app._context?.provides || app._instance?.provides;
-        if (provides) for (const key of Reflect.ownKeys(provides)) candidates.push(provides[key]);
-      }
-      if (vue) candidates.push(vue.$router, vue.$root?.$router, vue._routerRoot?._router);
-      for (const item of candidates) if (isRouterLike(item)) return item;
-    }
-    for (const r of [window.$router, window.router, window.__router]) if (isRouterLike(r)) return r;
-    return null;
-  }
-
-  function isRouterLike(obj) {
-    return !!obj && typeof obj === 'object' &&
-      (typeof obj.push === 'function' || typeof obj.replace === 'function') &&
-      (typeof obj.getRoutes === 'function' || Array.isArray(obj.options?.routes) || obj.matcher);
+    return window.__AEGISSCOPE_VUE_RUNTIME__.findRouter(roots)?.router || null;
   }
 
   function getRoutes(router) {
@@ -888,31 +800,45 @@ function mutatePageVueRuntime(action) {
   }
 
   function ensureBackup(router, routes) {
-    if (window.__CSG_VUE_PATCH_BACKUP__) return;
-    const backup = {
+    const backup = window.__CSG_VUE_PATCH_BACKUP__ || {
       patchedAt: Date.now(),
       guardCollections: [],
       routeGuards: [],
       metaEntries: [],
       routerMethods: []
     };
+    const early = router.__AEGISSCOPE_EARLY_BACKUP__;
     const props = ['beforeGuards', 'beforeResolveGuards', 'afterGuards', 'beforeHooks', 'resolveHooks', 'afterHooks', 'hooks'];
     for (const prop of props) {
+      if (backup.guardCollections.some((entry) => entry.target === router && entry.prop === prop)) continue;
       const val = router[prop];
-      if (Array.isArray(val)) backup.guardCollections.push({ target: router, prop, type: 'array', value: val.slice() });
-      else if (val instanceof Set) backup.guardCollections.push({ target: router, prop, type: 'set', value: Array.from(val) });
+      const original = early?.collections?.find((entry) => entry.target === router && entry.prop === prop);
+      if (Array.isArray(val)) backup.guardCollections.push({ target: router, prop, type: 'array', value: original ? original.value.slice() : val.slice() });
+      else if (val instanceof Set) backup.guardCollections.push({ target: router, prop, type: 'set', value: original ? original.value.slice() : Array.from(val) });
     }
     for (const route of routes) {
-      if (route && Object.prototype.hasOwnProperty.call(route, 'beforeEnter')) {
-        backup.routeGuards.push({ route, value: route.beforeEnter });
+      if (route && Object.prototype.hasOwnProperty.call(route, 'beforeEnter') &&
+          !backup.routeGuards.some((entry) => entry.route === route)) {
+        const original = early?.routeGuards?.find((entry) => entry.route === route);
+        backup.routeGuards.push({ route, value: original ? original.value : route.beforeEnter });
       }
       if (route?.meta && typeof route.meta === 'object') {
         for (const key of Object.keys(route.meta)) {
-          if (isAuthKey(key)) backup.metaEntries.push({ meta: route.meta, key, value: route.meta[key], existed: true });
+          if (!isAuthKey(key) || backup.metaEntries.some((entry) => entry.meta === route.meta && entry.key === key)) continue;
+          const original = early?.metaEntries?.find((entry) => entry.meta === route.meta && entry.key === key);
+          backup.metaEntries.push({ meta: route.meta, key, value: original ? original.value : route.meta[key], existed: true });
         }
       }
     }
     window.__CSG_VUE_PATCH_BACKUP__ = backup;
+  }
+
+  function originalRouterMethod(router, prop) {
+    const early = router.__AEGISSCOPE_EARLY_BACKUP__?.methods?.find((entry) => entry.target === router && entry.prop === prop);
+    if (early) return early.value;
+    const prototype = window.__AEGISSCOPE_VUE_EARLY_GUARD__?.prototypeBackups?.find((entry) =>
+      entry.prop === prop && entry.target.isPrototypeOf(router));
+    return prototype && router[prop]?.__aegisScopeEarlyPatched ? prototype.value : router[prop];
   }
 
   function clearRouteGuards(router, routes) {
@@ -960,7 +886,9 @@ function mutatePageVueRuntime(action) {
     const guardMethods = ['beforeEach', 'beforeResolve', 'afterEach'];
     for (const prop of guardMethods) {
       if (typeof router[prop] !== 'function' || router[prop].__aegisScopePatched) continue;
-      backup.routerMethods.push({ target: router, prop, value: router[prop] });
+      if (!backup.routerMethods.some((entry) => entry.target === router && entry.prop === prop)) {
+        backup.routerMethods.push({ target: router, prop, value: originalRouterMethod(router, prop) });
+      }
       const patched = function aegisScopeGuardBypass() {
         return function aegisScopeGuardUnregister() {};
       };
@@ -1009,10 +937,9 @@ function mutatePageVueRuntime(action) {
         changed++;
       } catch {}
     }
-    try {
-      const ctx = getMutableRouterContext();
-      if (ctx.router?.__AEGISSCOPE_VUE_PREFLIGHT__) delete ctx.router.__AEGISSCOPE_VUE_PREFLIGHT__;
-    } catch {}
+    for (const router of new Set((backup.routerMethods || []).map((entry) => entry.target))) {
+      try { delete router.__AEGISSCOPE_VUE_PREFLIGHT__; } catch {}
+    }
     delete window.__CSG_VUE_PATCH_BACKUP__;
     return changed;
   }
@@ -1033,129 +960,89 @@ function mutatePageVueRuntime(action) {
 }
 
 async function navigateVueRoute(path) {
-  try {
-    const router = findRouterForNavigation();
-    if (router && typeof router.push === 'function') {
-      const beforeHref = location.href;
-      const beforeRoute = readRouterPath(router);
-      let pushError = '';
-      try {
-        const ret = router.push(path);
-        if (ret && typeof ret.then === 'function') await ret;
-      } catch (error) {
-        pushError = error?.message || String(error);
-      }
-      await waitForNavigationEffect(router, beforeHref, beforeRoute, path);
-      if (routeChanged(router, beforeHref, beforeRoute, path)) {
-        return { ok: true, method: 'router.push', path, href: location.href };
-      }
-      return {
-        ok: false,
-        method: 'router.push-no-change',
-        error: pushError || 'router.push did not change route',
-        url: buildFallbackUrl(path, router),
-        path
-      };
-    }
-    return { ok: false, method: 'url-fallback', url: buildFallbackUrl(path, null), path };
-  } catch (error) {
-    return { ok: false, error: error?.message || String(error), url: buildFallbackUrl(path, null), path };
-  }
-
-  function findRouterForNavigation() {
-    const roots = findVueRoots();
-    for (const root of roots) {
-      const app = root.__vue_app__;
-      const vue = root.__vue__;
-      const candidates = [];
-      if (app) {
-        candidates.push(app.config?.globalProperties?.$router, app._instance?.proxy?.$router, app._instance?.ctx?.$router);
-        const provides = app._context?.provides || app._instance?.provides;
-        if (provides) for (const key of Reflect.ownKeys(provides)) candidates.push(provides[key]);
-      }
-      if (vue) candidates.push(vue.$router, vue.$root?.$router, vue._routerRoot?._router);
-      for (const item of candidates) {
-        if (item && typeof item.push === 'function') return item;
-      }
-    }
-    for (const item of [window.$router, window.router, window.__router]) {
-      if (item && typeof item.push === 'function') return item;
-    }
-    return null;
-  }
-
-  function findVueRoots() {
-    const out = [];
-    const queue = [];
-    if (document.body) queue.push(document.body);
-    const app = document.getElementById('app');
-    if (app) queue.unshift(app);
-    const seen = new Set();
-    let scanned = 0;
-    while (queue.length && scanned < 2200) {
-      const node = queue.shift();
-      scanned++;
-      if (!node || seen.has(node)) continue;
-      seen.add(node);
-      if (node.__vue_app__ || node.__vue__ || node._vnode) out.push(node);
-      if (node.children) for (const child of node.children) queue.push(child);
-    }
-    return out;
-  }
-
-  function readRouterPath(router) {
-    const cur = router?.currentRoute;
-    if (!cur) return '';
-    const route = cur.value || cur;
-    return route.fullPath || route.path || '';
-  }
-
-  async function waitForNavigationEffect(router, beforeHref, beforeRoute, targetPath) {
-    const start = Date.now();
-    while (Date.now() - start < 1200) {
-      if (routeChanged(router, beforeHref, beforeRoute, targetPath)) return;
-      await new Promise((resolve) => setTimeout(resolve, 80));
-    }
-  }
-
-  function routeChanged(router, beforeHref, beforeRoute, targetPath) {
-    const currentRoute = readRouterPath(router);
-    if (currentRoute && normalizePath(currentRoute) === normalizePath(targetPath)) return true;
-    if (currentRoute && currentRoute !== beforeRoute && currentRoute.includes(targetPath)) return true;
-    if (location.href !== beforeHref && (location.pathname === targetPath || location.hash === `#${targetPath}`)) return true;
-    return false;
-  }
-
-  function normalizePath(value) {
-    return String(value || '').split('?')[0].replace(/\/+$/, '') || '/';
-  }
-
-  function buildFallbackUrl(targetPath, router) {
-    const resolved = safeResolve(router, targetPath);
-    if (resolved) return resolved;
-    const url = new URL(location.href);
-    const likelyHashMode = url.hash && /^#\/?/.test(url.hash) ||
-      /hash/i.test(String(router?.mode || router?.history?.mode || router?.history?.type || ''));
-    if (likelyHashMode) {
-      url.hash = '#' + targetPath;
-      return url.href;
-    }
-    const base = router?.options?.base || router?.history?.base || '';
-    const cleanBase = base && base !== '/' ? String(base).replace(/\/+$/, '') : '';
-    url.pathname = `${cleanBase}${targetPath}`.replace(/\/{2,}/g, '/');
-    url.search = '';
-    url.hash = '';
-    return url.href;
-  }
-
-  function safeResolve(router, targetPath) {
+  const api = window.__AEGISSCOPE_VUE_RUNTIME__;
+  const router = api?.findRouter()?.router;
+  const readPath = () => api.current(router)?.fullPath || api.current(router)?.path || '';
+  const failure = (error) => ({ ok: false, error, current: readPath() });
+  if (!router) return failure('未发现可用的 Vue Router 实例');
+  let timer;
+  async function bounded(task, milliseconds) {
     try {
-      const resolved = router?.resolve?.(targetPath);
-      const href = typeof resolved === 'string' ? resolved : resolved?.href;
-      if (!href) return '';
-      return new URL(href, location.href).href;
-    } catch {
-      return '';
+      return await Promise.race([
+        task,
+        new Promise((_, reject) => { timer = setTimeout(() => reject(new Error('导航等待超时，请检查页面加载情况后重试')), milliseconds); })
+      ]);
+    } finally { clearTimeout(timer); }
+  }
+  try {
+    let resolved = router.resolve?.(path);
+    let target = resolved?.route || resolved;
+    // Follow configured redirects using the same query/hash defaults as Router 4.
+    const redirects = new Set();
+    while (target?.matched?.at(-1)?.redirect) {
+      if (redirects.has(target.fullPath) || redirects.size >= 10) return failure('路由重定向形成循环');
+      redirects.add(target.fullPath);
+      const record = target.matched.at(-1);
+      let redirect = typeof record.redirect === 'function' ? record.redirect(target) : record.redirect;
+      if (typeof redirect === 'string') {
+        redirect = /[?#]/.test(redirect) ? { path: redirect } : { path: redirect, query: target.query, hash: target.hash };
+      } else redirect = { query: target.query, hash: target.hash, ...redirect };
+      if (!redirect.path && redirect.name) redirect.params = redirect.params || target.params;
+      resolved = router.resolve(redirect);
+      target = resolved?.route || resolved;
     }
+    if (Array.isArray(target?.matched) && !target.matched.length) return failure('目标未匹配到可渲染的路由');
+    const targetPath = target?.fullPath || path;
+    const matches = () => api.fullPath(readPath()) === api.fullPath(targetPath);
+    if (matches()) return { ok: true, method: 'router.push', current: readPath() };
+    let navigationError = '', timedOut = false;
+    try {
+      const result = await bounded(Promise.resolve().then(() => router.push(path)), 5000);
+      if (result?.type === 8) return failure('导航已被页面的其他导航取消，请重试');
+      if (result instanceof Error || result?.type) navigationError = result.message || `导航被取消 (${result.type})`;
+    } catch (error) {
+      navigationError = error?.message || String(error);
+      timedOut = /等待超时/.test(navigationError);
+      if (!timedOut && !error?.type && !/^Navigation/.test(error?.name || '')) return failure(navigationError);
+    }
+    if (matches()) return { ok: true, method: 'router.push', current: readPath() };
+    // Router 3 can use callback-style push with no Promise.
+    if (!router.currentRoute?.__v_isRef && !navigationError) {
+      await new Promise((resolve) => setTimeout(resolve, 400));
+      if (matches()) return { ok: true, method: 'router.push', current: readPath() };
+    }
+    if (timedOut) return failure(navigationError);
+    const history = router.options?.history;
+    const ref = router.currentRoute;
+    if (!ref?.__v_isRef || ref.__v_isReadonly || !history || typeof history.push !== 'function') {
+      return failure(navigationError || '页面未到达目标路由，可能被守卫拦截或重定向');
+    }
+    if (!target?.matched?.length) return failure('目标未匹配到可渲染的路由');
+    if (target.matched.some((record) => record.redirect)) {
+      return failure('该路由配置了重定向，请选择最终页面路由');
+    }
+    // Use Vue Router's normalized route and lazy-component cache. Changing only the
+    // address or the ref without resolving components can leave RouterView blank.
+    const before = ref.value;
+    const components = [];
+    await bounded(Promise.all(target.matched.flatMap((record) => Object.entries(record.components || {}).map(async ([name, component]) => {
+      if (typeof component !== 'function' || component.displayName || component.props || component.__vccOpts) return;
+      const module = await component();
+      const loaded = module?.default || module;
+      if (!loaded || !['object', 'function'].includes(typeof loaded)) throw new Error('路由组件加载失败');
+      components.push({ record, name, loaded, module });
+    }))), 8000);
+    if (ref.value !== before) return failure('页面在组件加载期间发生了其他导航，请重试');
+    for (const { record, name, loaded, module } of components) {
+      record.components[name] = loaded;
+      if (record.mods) record.mods[name] = module;
+    }
+    history.push(target.fullPath);
+    ref.value = target;
+    await new Promise((resolve) => setTimeout(resolve, 100));
+    if (!matches()) return failure('页面逻辑再次重定向，未停留在目标路由');
+    return { ok: true, method: 'vue4-runtime', current: readPath() };
+  } catch (error) {
+    return failure(error?.message || String(error));
   }
 }

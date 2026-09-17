@@ -23,7 +23,6 @@
   state.prototypeBackups = [];
 
   const seenRouters = new WeakSet();
-  const seenNodes = new WeakSet();
   const guardMethods = ['beforeEach', 'beforeResolve', 'afterEach'];
   const guardCollections = ['beforeGuards', 'beforeResolveGuards', 'afterGuards', 'beforeHooks', 'resolveHooks', 'afterHooks', 'hooks'];
 
@@ -49,11 +48,13 @@
       patchedAt: Date.now()
     };
     router.__AEGISSCOPE_EARLY_BACKUP__ = backup;
+    const runtime = window.__CSG_VUE_PATCH_BACKUP__;
     let changed = 0;
 
     for (const prop of guardMethods) {
       if (typeof router[prop] !== 'function' || router[prop].__aegisScopeEarlyPatched) continue;
-      backup.methods.push({ target: router, prop, value: router[prop] });
+      const original = runtime?.routerMethods?.find((entry) => entry.target === router && entry.prop === prop);
+      backup.methods.push({ target: router, prop, value: original ? original.value : router[prop] });
       const patched = function aegisScopeEarlyGuardBypass() {
         state.hits++;
         return function aegisScopeEarlyGuardUnregister() {};
@@ -67,12 +68,13 @@
 
     for (const prop of guardCollections) {
       const val = router[prop];
+      const original = runtime?.guardCollections?.find((entry) => entry.target === router && entry.prop === prop);
       if (Array.isArray(val)) {
-        backup.collections.push({ target: router, prop, type: 'array', value: val.slice() });
+        backup.collections.push({ target: router, prop, type: 'array', value: original ? original.value.slice() : val.slice() });
         changed += val.length;
         val.length = 0;
       } else if (val instanceof Set) {
-        backup.collections.push({ target: router, prop, type: 'set', value: Array.from(val) });
+        backup.collections.push({ target: router, prop, type: 'set', value: original ? original.value.slice() : Array.from(val) });
         changed += val.size;
         val.clear();
       }
@@ -81,7 +83,8 @@
     const routes = getRoutes(router);
     for (const route of routes) {
       if (route && Object.prototype.hasOwnProperty.call(route, 'beforeEnter')) {
-        backup.routeGuards.push({ route, value: route.beforeEnter });
+        const original = runtime?.routeGuards?.find((entry) => entry.route === route);
+        backup.routeGuards.push({ route, value: original ? original.value : route.beforeEnter });
         if (route.beforeEnter) changed++;
         route.beforeEnter = undefined;
       }
@@ -89,7 +92,8 @@
         for (const key of Object.keys(route.meta)) {
           if (!isAuthKey(key)) continue;
           const next = nextAuthValue(key, route.meta[key]);
-          backup.metaEntries.push({ meta: route.meta, key, value: route.meta[key] });
+          const original = runtime?.metaEntries?.find((entry) => entry.meta === route.meta && entry.key === key);
+          backup.metaEntries.push({ meta: route.meta, key, value: original ? original.value : route.meta[key] });
           if (route.meta[key] !== next) changed++;
           route.meta[key] = next;
         }
@@ -161,6 +165,7 @@
 
   function findVueRoots() {
     const out = [];
+    const seenNodes = new WeakSet();
     const queue = [];
     const app = document.getElementById('app');
     if (app) queue.push(app);
@@ -314,7 +319,7 @@
   scanRoots();
   state.timer = setInterval(scanRoots, 180);
   setTimeout(() => {
-    if (state.timer) {
+    if (state.enabled && state.timer) {
       clearInterval(state.timer);
       state.timer = setInterval(scanRoots, 1200);
     }

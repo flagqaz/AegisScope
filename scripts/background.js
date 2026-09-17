@@ -227,10 +227,18 @@ async function getCopyUnlockState(tabId) {
   const url = await getTabUrl(tabId);
   const host = getUrlHost(url);
   const hosts = await getCopyUnlockHosts();
-  const tabState = tabCopyUnlock.get(tabId) || null;
+  // The service worker can be suspended; the live document is the source of truth.
+  let live = null;
+  try {
+    const results = await chrome.scripting.executeScript({
+      target: { tabId }, world: 'MAIN',
+      func: () => window.__AEGISSCOPE_COPY_UNLOCK__?.state() || null
+    });
+    live = results?.find((item) => item.frameId === 0)?.result || null;
+  } catch {}
   return {
-    enabled: Boolean(tabState?.enabled),
-    options: tabState?.options || { aggressive: true },
+    enabled: Boolean(live?.enabled),
+    options: { aggressive: live?.aggressive !== false },
     host,
     hostEnabled: Boolean(host && hosts.includes(host))
   };
@@ -800,44 +808,45 @@ async function resetUaState(tabId) {
 }
 
 async function injectCopyUnlock(tabId, enabled, options = {}) {
-  const target = { tabId, allFrames: true };
-  try {
-    await chrome.scripting.executeScript({
-      target,
-      files: ['scripts/injected/copy-unlock.js'],
-      world: 'MAIN',
-      injectImmediately: true
-    });
-  } catch (err) {
-    const message = err.message || '';
-    if (/Unexpected property|Invalid value for 'world'|injectImmediately/i.test(message)) {
-      await chrome.scripting.executeScript({
-        target,
-        files: ['scripts/injected/copy-unlock.js']
-      });
-    } else if (!/Cannot access|Missing host permission|No frame|The extensions gallery cannot be scripted|Cannot script/i.test(message)) {
-      throw err;
+  async function execute(details) {
+    try {
+      return await chrome.scripting.executeScript({ ...details, world: 'MAIN', injectImmediately: true });
+    } catch (err) {
+      if (!/Unexpected property.*injectImmediately|injectImmediately/i.test(err.message || '')) throw err;
+      return chrome.scripting.executeScript({ ...details, world: 'MAIN' });
     }
   }
-  let results;
-  try {
-    results = await chrome.scripting.executeScript({
-      target,
-      world: 'MAIN',
-      injectImmediately: true,
-      func: (payload) => window.__AEGISSCOPE_COPY_UNLOCK__?.apply(payload),
-      args: [{ enabled, options }]
-    });
-  } catch (err) {
-    const message = err.message || '';
-    if (!/Unexpected property|Invalid value for 'world'|injectImmediately/i.test(message)) throw err;
-    results = await chrome.scripting.executeScript({
+  async function applyTo(target) {
+    await execute({ target, files: ['scripts/injected/copy-unlock.js'] });
+    return execute({
       target,
       func: (payload) => window.__AEGISSCOPE_COPY_UNLOCK__?.apply(payload),
       args: [{ enabled, options }]
     });
   }
-  return (results || []).map((item) => item?.result).filter(Boolean);
+  // A restricted/detached subframe must not prevent the top document from enabling.
+  let results;
+  try {
+    results = await applyTo({ tabId, allFrames: true });
+  } catch {
+    results = await applyTo({ tabId });
+  }
+  const top = results?.find((item) => item.frameId === 0)?.result;
+  if (!top || top.enabled !== enabled) throw new Error('当前页面未完成解除复制，请刷新页面后重试');
+  const css = { files: ['styles/copy-unlock.css'], origin: 'USER' };
+  async function updateCss(target) {
+    // Remove first to keep reapply idempotent and make one disable remove all styles.
+    await chrome.scripting.removeCSS({ ...css, target });
+    if (enabled) await chrome.scripting.insertCSS({ ...css, target });
+  }
+  let cssWarning = '';
+  try {
+    await updateCss({ tabId, allFrames: true });
+  } catch {
+    try { await updateCss({ tabId }); }
+    catch { cssWarning = '页面脚本已启用，浏览器级样式未能应用'; }
+  }
+  return { frameStates: (results || []).map((item) => item?.result).filter(Boolean), cssWarning };
 }
 
 async function applyCopyUnlock(tabId, enabled, options = {}, hostEnabled = false) {
@@ -847,8 +856,8 @@ async function applyCopyUnlock(tabId, enabled, options = {}, hostEnabled = false
     aggressive: options.aggressive !== false,
     persist: Boolean(enabled && hostEnabled)
   };
+  const { frameStates, cssWarning } = await injectCopyUnlock(tabId, Boolean(enabled), safeOptions);
   if (host) await setCopyUnlockHost(host, Boolean(enabled && hostEnabled));
-  const frameStates = await injectCopyUnlock(tabId, Boolean(enabled), safeOptions);
   if (enabled) {
     tabCopyUnlock.set(tabId, { enabled: true, options: safeOptions, host, updatedAt: Date.now() });
   } else {
@@ -862,6 +871,7 @@ async function applyCopyUnlock(tabId, enabled, options = {}, hostEnabled = false
     host,
     hostEnabled: Boolean(host && hosts.includes(host)),
     frames: frameStates.length,
+    warning: cssWarning,
     scanned: frameStates.reduce((sum, item) => sum + (item.scanned || 0), 0),
     changed: frameStates.reduce((sum, item) => sum + (item.changed || 0), 0),
     blockedListeners: frameStates.reduce((sum, item) => sum + (item.blockedListeners || 0), 0),
