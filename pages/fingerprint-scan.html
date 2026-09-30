@@ -5,13 +5,14 @@
   <meta name="resource-profile" content="flagqaz/AegisScope:99adf0bf9fce110c:38279b8e5561ab7b">
   <title>玄镜 AegisScope 指纹扫描</title>
   <link rel="stylesheet" href="../styles/fingerprint-scan.css">
+  <link rel="stylesheet" href="../styles/workbench-fresh.css">
 </head>
-<body>
+<body class="aegis-page" data-page="fingerprint-scan">
   <header class="page-header">
     <div class="brand">
       <div class="mark" aria-hidden="true"><img src="../icons/icon48.png" alt=""></div>
       <div>
-        <h1>玄镜 AegisScope 指纹扫描 <span class="version">V2.2.9</span></h1>
+        <h1>玄镜 AegisScope 指纹扫描 <span class="version">V2.3.1</span></h1>
         <span id="origin" class="origin"></span>
       </div>
     </div>
@@ -21,6 +22,7 @@
       </a>
       <a class="top-author-link" href="https://github.com/flagqaz/AegisScope" target="_blank" rel="noreferrer">by.农夫三拳</a>
       <button id="start" class="primary">开始扫描</button>
+      <button id="expand" title="提高候选资源和正文上限，重新扫描当前页面">扩展扫描</button>
       <button id="stop">停止</button>
       <button id="exportJson">导出 JSON</button>
       <button id="exportMd">导出 Markdown</button>
@@ -58,6 +60,8 @@
       <div class="sub" id="evidenceSub">待扫描</div>
     </div>
   </section>
+
+  <section id="coverage" class="coverage-panel" aria-live="polite"></section>
 
   <section class="toolbar">
     <input id="search" type="search" placeholder="过滤指纹、分类、版本、证据" />

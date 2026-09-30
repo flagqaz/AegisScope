@@ -22,6 +22,10 @@
 }
 
 * { box-sizing: border-box; }
+#coverage { overflow-wrap: anywhere; }
+#coverage p { margin: 8px 0; }
+#coverage details { max-height: 320px; overflow: auto; }
+button:disabled { opacity: .5; cursor: not-allowed; }
 html, body {
   margin: 0;
   padding: 0;
@@ -1485,3 +1489,15 @@ footer div {
   font-weight: 900 !important;
   color: #10283a !important;
 }
+
+/* Leak review: compact native controls and explicit optional metadata. */
+.filters .chk { display: inline-flex; align-items: center; gap: 7px; white-space: nowrap; }
+.filters input[type="checkbox"] {
+  width: 18px !important; height: 18px !important; min-width: 18px !important;
+  min-height: 18px !important; flex: 0 0 18px !important; padding: 0 !important;
+  margin: 0 !important; box-shadow: none !important;
+}
+details.asset-profile { max-height: none; }
+details.asset-profile > summary { cursor: pointer; font-size: 15px; font-weight: 700; }
+details.asset-profile[open] > summary { margin-bottom: 12px; }
+.finding .body .exploit::before { content: none; }

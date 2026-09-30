@@ -94,10 +94,14 @@ const els = {
   charsetStatus: document.getElementById('charsetStatus'),
   charsetClose: document.getElementById('charsetClose'),
   charsetState: document.getElementById('charsetState'),
-  // 网站编码修改功能开发预留，具体控件在 popup.html 中暂时注释。
-  // charsetValue: document.getElementById('charsetValue'),
-  // charsetApply: document.getElementById('charsetApply'),
-  // charsetReset: document.getElementById('charsetReset'),
+  charsetValue: document.getElementById('charsetValue'),
+  charsetApply: document.getElementById('charsetApply'),
+  charsetReset: document.getElementById('charsetReset'),
+  charsetRead: document.getElementById('charsetRead'),
+  charsetFrames: document.getElementById('charsetFrames'),
+  charsetDetected: document.getElementById('charsetDetected'),
+  charsetOverride: document.getElementById('charsetOverride'),
+  charsetScope: document.getElementById('charsetScope'),
   versionBadge: document.getElementById('versionBadge'),
   updateDot: document.getElementById('updateDot'),
   updateDialog: document.getElementById('updateDialog'),
@@ -216,6 +220,16 @@ async function init() {
     return;
   }
   currentTabId = tab.id;
+  chrome.tabs.onUpdated.addListener((id, change) => {
+    if (id !== currentTabId || (!change.url && change.status !== 'loading')) return;
+    cancelSniffWork();
+    sniffState = { signals: null, findings: [] };
+    if (!els.sniffPanel.hidden) {
+      els.sniffStatus.textContent = '目标页面已变化，请重新识别';
+      els.sniffResults.innerHTML = '<div class="empty visible">目标页面已变化。</div>';
+      els.sniffEvidence.innerHTML = ''; els.sniffSummary.innerHTML = '';
+    }
+  });
   try { currentTabHost = new URL(tab.url).host; } catch { currentTabHost = ''; }
 
   await restorePersistedSniffCache();
@@ -322,8 +336,8 @@ async function init() {
   els.charsetSwitch.addEventListener('click', () => {
     runUiActionOnce('assist-charset', () => {
       openAssistPanel('charset');
-      els.charsetStatus.textContent = '功能正在开发中';
-      setStatus('网站编码修改功能正在开发中');
+      setStatus('编码修改：检测当前页面后可选择编码并刷新');
+      return loadCharsetState();
     });
   });
   els.copyClose.addEventListener('click', closeAssistPanels);
@@ -351,16 +365,9 @@ async function init() {
   els.uaRefresh.addEventListener('click', () => currentTabId && chrome.tabs.reload(currentTabId, { bypassCache: true }));
   els.uaReset.addEventListener('click', resetUaSimple);
   els.uaTest.addEventListener('click', testUaSimple);
-  [
-    els.charsetApply,
-    els.charsetReset
-  ].filter(Boolean).forEach((button) => {
-    button.addEventListener('click', () => {
-      const visibleStatus = [els.copyStatus, els.webrtcStatus, els.uaStatus, els.charsetStatus].find((item) => item && !item.closest('section')?.hidden);
-      if (visibleStatus) visibleStatus.textContent = 'UI 预览中，功能待接入';
-      setStatus('浏览器辅助功能正在进行 UI 设计，暂未执行实际修改');
-    });
-  });
+  els.charsetApply.addEventListener('click', () => changeCharset(false));
+  els.charsetReset.addEventListener('click', () => changeCharset(true));
+  els.charsetRead.addEventListener('click', loadCharsetState);
   els.clear.addEventListener('click', clearAllRecords);
   els.repoLink.addEventListener('click', openProjectHome);
   els.topAuthorLink.addEventListener('click', openProjectHome);
@@ -461,7 +468,7 @@ function openAssistPanel(section) {
     copy: '读取解除复制状态',
     webrtc: '读取 WebRTC 防护状态',
     ua: 'User-Agent 修改 UI 预览',
-    charset: '网站编码修改 UI 预览'
+    charset: '读取当前页面编码'
   };
   activeMainView = 'assist';
   hideAssistPanels();
@@ -489,6 +496,97 @@ function closeAssistPanels() {
   hideAssistPanels();
   setAssetListVisible(true);
   setActiveActionButton(null);
+}
+
+let charsetBusy = false;
+let charsetState = null;
+
+function updateCharsetButtons() {
+  els.charsetApply.disabled = charsetBusy || !charsetState?.page?.supported;
+  els.charsetReset.disabled = charsetBusy || !charsetState?.ruleCount;
+  els.charsetRead.disabled = charsetBusy;
+  els.charsetValue.disabled = charsetBusy || !charsetState?.page?.supported;
+  els.charsetFrames.disabled = charsetBusy || !charsetState?.page?.supported;
+}
+
+function renderCharsetState(state) {
+  charsetState = state;
+  if (!els.charsetValue.options.length) {
+    for (const [value, label] of globalThis.AEGISSCOPE_CHARSETS) {
+      const option = document.createElement('option');option.value = value;option.textContent = label;
+      els.charsetValue.append(option);
+    }
+  }
+  const actual = state.page?.encoding || '';
+  const selected = state.enabled ? state.encoding : actual;
+  const profile = globalThis.AEGISSCOPE_CHARSETS.find(([value]) => {
+    try { return new TextDecoder(value).encoding === new TextDecoder(selected).encoding; } catch { return false; }
+  });
+  els.charsetValue.value = state.enabled ? state.encoding : profile?.[0] || 'UTF-8';
+  els.charsetFrames.checked = state.enabled && state.includeFrames;
+  els.charsetDetected.textContent = actual || '无法读取';
+  els.charsetOverride.textContent = state.enabled ? state.encoding : '浏览器默认';
+  els.charsetState.textContent = state.enabled ? state.mode === 'page' ? '兼容模式' : '已设置' : state.page?.supported ? '未设置' : '不可用';
+  els.charsetScope.textContent = state.page?.origin
+    ? `作用于当前标签页的 ${state.page.origin}；切换网站或关闭标签页后自动清除。`
+    : '仅支持 HTTP/HTTPS 网页。';
+  if (state.mode === 'page') {
+    els.charsetScope.textContent = `旧版兼容模式：仅当前页面地址${state.includeFrames ? '及已识别的本站 iframe' : ''}生效；打开其他地址后需重新应用。`;
+  }
+  let message = state.page?.supported ? '选择与页面原始文字对应的编码，然后应用并刷新。' : state.page?.reason || '当前页面无法修改编码';
+  if (state.enabled && actual) {
+    let matched = false;
+    try { matched = new TextDecoder(actual).encoding === new TextDecoder(state.encoding).encoding; } catch {}
+    message = matched ? `当前已按 ${actual} 解析。` : `已设置 ${state.encoding}，当前仍按 ${actual} 解析；可刷新重试，文件自带的编码标记或网站缓存也可能影响结果。`;
+  }
+  els.charsetStatus.textContent = message;
+  updateCharsetButtons();
+}
+
+async function loadCharsetState() {
+  if (charsetBusy || !currentTabId) return;
+  charsetBusy = true;updateCharsetButtons();
+  els.charsetStatus.textContent = '正在读取当前编码...';
+  try {
+    const state = await chrome.runtime.sendMessage({ type: 'GET_CHARSET_STATE', tabId: currentTabId });
+    if (!state?.ok) throw new Error(state?.error || '未收到后台响应');
+    renderCharsetState(state);
+  } catch (error) {
+    charsetState = null;
+    els.charsetState.textContent = '读取失败';
+    els.charsetStatus.textContent = `读取失败：${error.message}`;
+  } finally { charsetBusy = false;updateCharsetButtons(); }
+}
+
+async function changeCharset(reset) {
+  if (charsetBusy || !currentTabId) return;
+  charsetBusy = true;updateCharsetButtons();
+  els.charsetStatus.textContent = reset ? '正在恢复默认并刷新...' : '正在应用编码并刷新...';
+  let warning = '';
+  try {
+    const result = await chrome.runtime.sendMessage({
+      type: reset ? 'RESET_CHARSET' : 'SET_CHARSET', tabId: currentTabId,
+      encoding: els.charsetValue.value, includeFrames: els.charsetFrames.checked,
+      expectedUrl: charsetState?.page?.url
+    });
+    if (!result?.ok) throw new Error(result?.error || '未收到后台响应');
+    warning = result.warning || '';
+    setStatus(reset ? '已恢复默认编码，正在刷新页面' : `编码已设置为 ${result.encoding}，正在刷新页面`);
+    // The popup may close on reload. Session rules retain state when it reopens.
+    const start = Date.now();
+    do {
+      await new Promise((resolve) => setTimeout(resolve, 250));
+      const tab = await chrome.tabs.get(currentTabId);
+      if (tab.status === 'complete') break;
+    } while (Date.now() - start < 8000);
+    const state = await chrome.runtime.sendMessage({ type: 'GET_CHARSET_STATE', tabId: currentTabId });
+    if (!state?.ok) throw new Error(state?.error || '无法读取刷新后的编码');
+    renderCharsetState(state);
+    if (warning) els.charsetStatus.textContent = warning;
+  } catch (error) {
+    els.charsetStatus.textContent = `操作失败：${error.message}`;
+    setStatus(`编码修改失败：${error.message}`);
+  } finally { charsetBusy = false;updateCharsetButtons(); }
 }
 
 function updateCopyUnlockUi(state = copyUnlockState) {
@@ -1456,11 +1554,13 @@ async function buildStandaloneHtmlDocument(snapshot, onProgress = () => {}) {
   doc.querySelectorAll('meta[http-equiv]').forEach((meta) => {
     if ((meta.getAttribute('http-equiv') || '').toLowerCase() === 'content-security-policy') meta.remove();
   });
-  if (!doc.querySelector('meta[charset]')) {
-    const meta = doc.createElement('meta');
-    meta.setAttribute('charset', 'UTF-8');
-    doc.head.prepend(meta);
-  }
+  // The exported Blob is UTF-8, regardless of the source document's encoding.
+  doc.querySelectorAll('meta[charset], meta[http-equiv]').forEach((meta) => {
+    if (meta.hasAttribute('charset') || (meta.getAttribute('http-equiv') || '').toLowerCase() === 'content-type') meta.remove();
+  });
+  const charsetMeta = doc.createElement('meta');
+  charsetMeta.setAttribute('charset', 'UTF-8');
+  doc.head.prepend(charsetMeta);
   if (!doc.querySelector('base')) {
     const base = doc.createElement('base');
     base.href = snapshot.url || '';
@@ -1473,7 +1573,7 @@ async function buildStandaloneHtmlDocument(snapshot, onProgress = () => {}) {
     onProgress(`HTML 保存：正在内联样式 ${index + 1} / ${stylesheets.length}`);
     try {
       const href = absoluteUrl(link.getAttribute('href'), snapshot.url);
-      const css = await fetchTextForStandaloneHtml(href);
+      const css = await fetchTextForStandaloneHtml(href, snapshot.encoding);
       const style = doc.createElement('style');
       style.textContent = rewriteCssUrls(css, href);
       link.replaceWith(style);
@@ -1488,7 +1588,7 @@ async function buildStandaloneHtmlDocument(snapshot, onProgress = () => {}) {
     onProgress(`HTML 保存：正在内联脚本 ${index + 1} / ${externalScripts.length}`);
     try {
       const src = absoluteUrl(script.getAttribute('src'), snapshot.url);
-      const text = await fetchTextForStandaloneHtml(src);
+      const text = await fetchTextForStandaloneHtml(src, script.getAttribute('charset') || snapshot.encoding);
       script.removeAttribute('src');
       script.textContent = `\n${text}\n`;
       inlined++;
@@ -1551,9 +1651,17 @@ function absoluteUrl(raw, base) {
   return new URL(raw, base).href;
 }
 
-async function fetchTextForStandaloneHtml(url) {
+async function fetchTextForStandaloneHtml(url, fallbackEncoding = 'utf-8') {
   const fetched = await fetchBinaryForStandaloneHtml(url, 6 * 1024 * 1024);
-  return new TextDecoder('utf-8').decode(fetched.data);
+  const declared = /charset\s*=\s*["']?([^\s;"']+)/i.exec(fetched.contentType)?.[1];
+  const cssEncoding = /^@charset\s+["']([^"']+)/i.exec(new TextDecoder().decode(fetched.data.subarray(0, 160)))?.[1];
+  const data = fetched.data;
+  const bom = data[0] === 0xef && data[1] === 0xbb && data[2] === 0xbf ? 'utf-8' :
+    data[0] === 0xff && data[1] === 0xfe ? 'utf-16le' : data[0] === 0xfe && data[1] === 0xff ? 'utf-16be' : '';
+  let decoder;
+  try { decoder = new TextDecoder(bom || declared || cssEncoding || fallbackEncoding || 'utf-8'); }
+  catch { decoder = new TextDecoder('utf-8'); }
+  return decoder.decode(fetched.data);
 }
 
 async function fetchDataUrlForStandaloneHtml(url) {
@@ -1571,7 +1679,8 @@ async function fetchBinaryForStandaloneHtml(url, maxBytes) {
     cache: 'force-cache'
   }, 12000, maxBytes);
   if (!res.ok) throw new Error(`HTTP ${res.status}`);
-  return { data, type: (res.headers.get('content-type') || '').split(';')[0] };
+  const contentType = res.headers.get('content-type') || '';
+  return { data, type: contentType.split(';')[0], contentType };
 }
 
 function rewriteCssUrls(css, baseUrl) {
@@ -1707,6 +1816,7 @@ function collectPageCodeSnapshot() {
     url: location.href,
     host: location.host,
     title: document.title,
+    encoding: document.characterSet,
     html: '<!DOCTYPE html>\n' + document.documentElement.outerHTML,
     resources: Array.from(resources.values())
   };
@@ -2059,6 +2169,8 @@ function normalizeSniffSignals(page = {}, runtime = {}, background = {}) {
     .filter(Boolean));
   return {
     url: page.url || main.url || '',
+    documentEpoch: page.documentEpoch,
+    coverage: page.coverage || [],
     title: page.title || '',
     html: page.html || '',
     text: page.text || '',
@@ -2279,6 +2391,7 @@ function sniffMatcherCanRun(signals, signalIndex, matcher) {
 }
 
 function isWeakSniffFinding(rule, evidences, score) {
+  if (evidences.every(isGenericSniffEvidence)) return true;
   const sourceTypes = new Set(evidences.map((item) => item.sourceType || ''));
   const hasStrong = evidences.some((item) => SNIFF_STRONG_SOURCES.has(item.sourceType) && (item.score || 0) >= 70);
   const hasMedium = evidences.some((item) => SNIFF_MEDIUM_SOURCES.has(item.sourceType) && (item.score || 0) >= 78);
@@ -2286,6 +2399,16 @@ function isWeakSniffFinding(rule, evidences, score) {
   if (evidences.length >= 2 && score >= 88) return false;
   const weakOnly = [...sourceTypes].every((source) => ['html', 'text', 'css', 'scripts', 'className', 'id'].includes(source));
   return weakOnly && score < Math.max(rule.minScore || 60, 86);
+}
+
+function isGenericSniffEvidence(evidence) {
+  const value = String(evidence.value || '').trim().toLowerCase();
+  if (evidence.sourceType === 'selector') {
+    // A selector list is an OR: a generic branch cannot identify a technology.
+    return value.split(',').some((selector) => /^(?:(?:html|body|head|script|div|span|main|section|\*|[.#](?:app|root|container|content|main))[\s>+~]*)+$/.test(selector.trim()));
+  }
+  return ['html', 'text'].includes(evidence.sourceType)
+    && /^<(?:html|body|head|script|div|span|main|link|meta)(?:\s|\/?>)*$/.test(value);
 }
 
 function bestSniffEvidenceVersion(evidences) {
@@ -2619,12 +2742,14 @@ function valuesForSniffSource(signals, matcher) {
 }
 
 function renderSniffResults() {
-  const { signals, findings } = sniffState;
+  const signals = sniffState.signals || {}, findings = sniffState.findings || [];
   els.sniffSummary.innerHTML = [
     ['技术', findings.length],
     ['脚本', signals.scriptSrc?.length || 0],
     ['响应头', Object.keys(signals.headers || {}).length]
   ].map(([label, value]) => `<div class="sniff-stat"><span>${label}</span><strong>${value}</strong></div>`).join('');
+  if (signals.coverage?.length) els.sniffSummary.innerHTML += `<details><summary>采集范围说明</summary>${signals.coverage.map(x => `<p>${escapeHtml(x)}</p>`).join('')}</details>`;
+  els.sniffEvidence.innerHTML = '';
 
   if (!findings.length) {
     els.sniffResults.innerHTML = '<div class="empty visible">暂未识别到明确技术。</div>';
@@ -2848,7 +2973,9 @@ async function exportSniffJson() {
     generatedAt: new Date().toISOString(),
     url: sniffState.signals?.url || '',
     title: sniffState.signals?.title || '',
-    findings: sniffState.findings
+    findings: sniffState.findings,
+    coverage: sniffState.signals?.coverage || [],
+    documentEpoch: sniffState.signals?.documentEpoch
   };
   const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json;charset=utf-8' });
   await downloadBlob(blob, { filename: `js-extractor/site-sniff-${Date.now()}.json`, saveAs: true });
@@ -3883,6 +4010,7 @@ function escapeAttr(value) {
 }
 
 async function collectSniffPageSignalsInPage(extraSelectors = []) {
+  const documentEpoch = performance.timeOrigin;
   const meta = {};
   for (const node of document.querySelectorAll('meta')) {
     const key = (node.getAttribute('name') || node.getAttribute('property') || node.getAttribute('http-equiv') || '').toLowerCase();
@@ -4066,10 +4194,20 @@ async function collectSniffPageSignalsInPage(extraSelectors = []) {
       await yieldNow();
     }
   }
+  const coverage = [];
+  if (heavyPage) coverage.push('大型页面采用采样采集，非完整 DOM 和运行时覆盖');
+  if (allNodes.length > limits.vueNodeChecks) coverage.push('DOM 运行时检查达到节点数量上限');
+  if (resourceEntries.length > limits.resources) coverage.push('资源列表已截断');
+  if (scripts.length >= limits.inlineScriptCount || scriptChars >= limits.inlineScriptChars) coverage.push('内联脚本采集达到上限');
+  if (cssChars > limits.cssChars) coverage.push('样式内容已截断');
+  if (extraSelectors.length > limits.selectorCount || performance.now() - selectorStart > limits.selectorBudgetMs) coverage.push('选择器检查达到数量或时间预算');
+  const html = buildHtmlSample();
+  if (html.length >= limits.htmlChars) coverage.push('HTML 内容达到采样上限');
   return {
     url: location.href,
+    documentEpoch, coverage,
     title: document.title,
-    html: buildHtmlSample(),
+    html,
     text: (document.body?.textContent || '').slice(0, limits.textChars),
     css: css.join('\n').slice(0, limits.cssChars),
     scripts,
@@ -4089,13 +4227,20 @@ async function collectSniffPageSignalsInPage(extraSelectors = []) {
   };
 }
 
-function collectSniffRuntimeSignalsInPage(extraChains = []) {
+async function collectSniffRuntimeSignalsInPage(extraChains = []) {
+  let sliceStartedAt = performance.now();
+  const yieldRuntime = async () => {
+    if (performance.now() - sliceStartedAt < 6) return;
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    sliceStartedAt = performance.now();
+  };
   const chains = ['Vue', 'Vue.version', 'VueRouter', 'Vuex', 'Pinia', '__VUE_OPTIONS_API__', '__VUE_PROD_DEVTOOLS__', 'React', 'React.version', 'ReactDOM', 'ReactDOM.version', 'angular', 'angular.version.full', 'jQuery', 'jQuery.fn.jquery', '$.fn.jquery', 'bootstrap.Tooltip.VERSION', '_', '_.VERSION', 'moment', 'moment.version', 'dayjs', 'dayjs.version', 'axios', 'axios.VERSION', 'Swiper', 'layui', 'layui.v', 'Vant', 'ElementPlus', 'ELEMENT', 'antd', 'ArcoVue', 'Highcharts', 'Highcharts.version', 'echarts', 'echarts.version', 'Chart', 'Chart.version', 'd3', 'd3.version', 'THREE', 'THREE.REVISION', 'Backbone', 'Backbone.VERSION', 'ko', 'ko.version', 'Ember', 'Ember.VERSION', 'MooTools', 'MooTools.version', 'Prototype', 'Prototype.Version', 'Zepto', 'require', 'require.version', 'define.amd', 'seajs', 'System', 'Alpine', 'htmx', 'NProgress', 'webpackJsonp', 'webpackChunk', '__webpack_require__', '__webpack_require__.p', '__vite_is_modern_browser', '__VP_HASH_MAP__', '__VUE_DEVTOOLS_GLOBAL_HOOK__', '__NUXT__', '__NEXT_DATA__', '___gatsby', '__remixContext', 'Shopify', 'Shopify.theme', 'Magento', 'Mage', 'Webflow', 'Wix', 'Squarespace', 'Stripe', 'paypal', 'grecaptcha', 'hcaptcha', 'turnstile', 'Sentry', 'Raven', 'dataLayer', 'gtag', '_hmt', 'sensors', 'gio', 'clarity', 'hj', 'posthog', 'AMap', 'BMap', 'qq.maps', 'wx', 'WeixinJSBridge'];
   chains.push('AFRAME', 'AFRAME.version', 'gsap', 'gsap.version', 'TweenLite.version', 'TweenMax.version', 'Lenis', 'lenisVersion', 'FullCalendar.version', 'MonacoEnvironment', 'monaco.editor', 'Prism', 'hljs', 'hljs.listLanguages', 'MathJax', 'MathJax.version', 'katex', 'katex.version', 'mermaid', 'Splide', 'Choices', 'jQuery.fn.select2', '$.fn.select2', 'tinyMCE', 'tinymce', 'tinyMCE.majorVersion', 'CKEDITOR', 'CKEDITOR.version', 'CKEDITOR_VERSION', 'Quill', 'videojs', 'videojs.VERSION', 'lottie.version', 'analytics.VERSION', 'analytics.SNIPPET_VERSION', 'mixpanel', 'plausible', 'PAYPAL', '__paypal_global__');
   if (Array.isArray(extraChains)) chains.push(...extraChains.filter((item) => typeof item === 'string' && item.length < 120));
   const uniqueChains = Array.from(new Set(chains)).slice(0, 6000);
   const globals = {};
   for (const chain of uniqueChains) {
+    await yieldRuntime();
     let value;
     try {
       value = chain.split('.').reduce((obj, key) => {
@@ -4144,6 +4289,7 @@ function collectSniffRuntimeSignalsInPage(extraChains = []) {
     const maxVueDomChecks = heavyPage ? 1800 : 5000;
     let vueDomChecks = 0;
     for (let i = 0; i < allNodes.length && i < maxVueDomChecks; i++) {
+      if (i % 100 === 0) await yieldRuntime();
       const node = allNodes[i];
       if (node.__vue_app__) {
         pushVueRuntime('__vue_app__');
@@ -4187,7 +4333,7 @@ function collectSniffRuntimeSignalsInPage(extraChains = []) {
     if (jq?.fn?.dataTable || jq?.fn?.DataTable) pushJqueryRuntime('plugin:datatable');
     if (jq?.fn?.modal || jq?.fn?.fancybox || jq?.fn?.pjax) pushJqueryRuntime('plugin:common');
   } catch {}
-  return { globals, vueRuntime, jqueryRuntime };
+  return { globals, vueRuntime, jqueryRuntime, url: location.href, documentEpoch: performance.timeOrigin };
 }
 
 function sniffRegex(pattern) {
@@ -4251,14 +4397,11 @@ async function openSiteSniff(options = {}) {
   let cacheKey = '';
   try { cacheKey = await getSniffCacheKey(); } catch { cacheKey = ''; }
   if (!options.bypassCache) {
-    const activeKey = sniffState.signals ? getSniffCacheKeyFromSignals(sniffState.signals) : '';
-    const cached = activeKey && activeKey === cacheKey ? sniffState : getCachedSniffResult(cacheKey);
+    const cached = getCachedSniffResult(cacheKey);
     if (cached?.signals) {
       sniffState = cached;
       renderSniffResults();
-      els.sniffStatus.textContent = `已显示缓存：${sniffState.findings?.length || 0} 项技术`;
-      setStatus(`网站嗅探已从缓存显示：${sniffState.findings?.length || 0} 项技术`);
-      return;
+      els.sniffStatus.textContent = `历史缓存：${sniffState.findings?.length || 0} 项技术，正在核验当前页面…`;
     }
   }
   const runKey = cacheKey || `${currentTabId}:${currentTabHost || ''}`;
@@ -4276,6 +4419,7 @@ async function openSiteSniff(options = {}) {
   setStatus('正在进行网站嗅探...');
 
   try {
+    const expected = await getSniffTargetStamp();
     const extendedReady = await ensureSniffExtendedRulesLoaded();
     if (runSeq !== sniffRunSeq) return;
     if (!extendedReady) setStatus('网站嗅探扩展规则加载失败，已使用基础规则继续');
@@ -4292,10 +4436,15 @@ async function openSiteSniff(options = {}) {
       chrome.runtime.sendMessage({ type: 'GET_SNIFF_DATA', tabId: currentTabId }).catch(() => ({}))
     ]);
     if (runSeq !== sniffRunSeq) return;
+    const current = await getSniffTargetStamp();
+    if (!sameSniffDocument(expected, current) || !sameSniffDocument(expected, pageSignals) ||
+        (runtimeSignals.url && !sameSniffDocument(expected, runtimeSignals))) throw new Error('目标页面已变化，请重新识别');
     const signals = normalizeSniffSignals(pageSignals, runtimeSignals, backgroundSignals);
     const detected = await analyzeSniffSignalsCooperatively(signals, runSeq);
     if (!detected || runSeq !== sniffRunSeq) return;
     const findings = resolveSniffFindings(detected);
+    if (runSeq !== sniffRunSeq) return;
+    if (!sameSniffDocument(expected, await getSniffTargetStamp())) throw new Error('目标页面已变化，请重新识别');
     if (runSeq !== sniffRunSeq) return;
     sniffState = { signals, findings };
     setCachedSniffResult(cacheKey || getSniffCacheKeyFromSignals(signals), sniffState);
@@ -4306,6 +4455,7 @@ async function openSiteSniff(options = {}) {
     setStatus(`网站嗅探完成：${findings.length} 项技术`);
     setTimeout(() => refreshSniffRuntimeSignals(signals.url, runSeq).catch(() => {}), 1800);
   } catch (err) {
+    if (runSeq !== sniffRunSeq) return;
     els.sniffStatus.textContent = `识别失败：${err.message}`;
     els.sniffResults.innerHTML = '<div class="empty visible">网站嗅探失败。</div>';
     setStatus(`网站嗅探失败：${err.message}`);
@@ -4321,6 +4471,16 @@ async function getSniffCacheKey() {
   } catch {
     return `${currentTabId}:${currentTabHost}`;
   }
+}
+
+async function getSniffTargetStamp() {
+  const [result] = await chrome.scripting.executeScript({ target: { tabId: currentTabId },
+    func: () => ({ url: location.href, documentEpoch: performance.timeOrigin }) });
+  if (!result?.result) throw new Error('目标页面无法读取');
+  return result.result;
+}
+function sameSniffDocument(a, b) {
+  return !!a?.url && a.url === b?.url && a.documentEpoch === b?.documentEpoch;
 }
 
 function getSniffCacheKeyFromSignals(signals) {
@@ -4382,6 +4542,8 @@ async function persistSniffResultCache() {
       time: item.time,
       signals: {
         url: item.signals?.url || '',
+        documentEpoch: item.signals?.documentEpoch,
+        coverage: item.signals?.coverage || [],
         title: item.signals?.title || '',
         scriptSrc: (item.signals?.scriptSrc || []).slice(0, 240),
         resourceUrls: (item.signals?.resourceUrls || []).slice(0, 500),
@@ -4404,29 +4566,26 @@ async function refreshSniffRuntimeSignals(expectedUrl, expectedRunSeq = sniffRun
     sniffState.signals.url !== expectedUrl ||
     els.sniffPanel.hidden
   ) return;
+  const expected = { url: expectedUrl, documentEpoch: sniffState.signals.documentEpoch };
+  if (!sameSniffDocument(expected, await getSniffTargetStamp())) return;
   const runtimeSignals = await collectSniffRuntimeSignals();
   if (expectedRunSeq !== sniffRunSeq || els.sniffPanel.hidden) return;
+  if (!sameSniffDocument(expected, runtimeSignals) || !sameSniffDocument(expected, await getSniffTargetStamp())) return;
   const mergedSignals = {
     ...sniffState.signals,
-    globals: {
-      ...(sniffState.signals.globals || {}),
-      ...(runtimeSignals.globals || {})
-    },
-    vueRuntime: sniffUnique([
-      ...(sniffState.signals.vueRuntime || []),
-      ...(runtimeSignals.vueRuntime || [])
-    ]),
-    jqueryRuntime: sniffUnique([
-      ...(sniffState.signals.jqueryRuntime || []),
-      ...(runtimeSignals.jqueryRuntime || [])
-    ])
+    globals: runtimeSignals.globals || {},
+    vueRuntime: runtimeSignals.vueRuntime || [],
+    jqueryRuntime: runtimeSignals.jqueryRuntime || []
   };
   const detected = await analyzeSniffSignalsCooperatively(mergedSignals, expectedRunSeq);
   if (!detected || expectedRunSeq !== sniffRunSeq || els.sniffPanel.hidden) return;
+  if (!sameSniffDocument(expected, await getSniffTargetStamp())) return;
   const findings = resolveSniffFindings(detected);
-  if (JSON.stringify(findings) === JSON.stringify(sniffState.findings)) return;
+  if (expectedRunSeq !== sniffRunSeq || els.sniffPanel.hidden) return;
+  const unchanged = JSON.stringify(findings) === JSON.stringify(sniffState.findings);
   sniffState = { signals: mergedSignals, findings };
   setCachedSniffResult(getSniffCacheKeyFromSignals(mergedSignals), sniffState);
+  if (unchanged) return;
   renderSniffResults();
   els.sniffStatus.textContent = findings.length
     ? `识别完成：${findings.length} 项技术`

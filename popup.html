@@ -10,8 +10,9 @@
   <meta name="render-cache-key" content="c311626677d3-38279b8e5561">
   <title>玄镜 AegisScope</title>
   <link rel="stylesheet" href="styles/popup.css">
+  <link rel="stylesheet" href="styles/popup-fresh.css">
 </head>
-<body data-aegisscope-origin="flagqaz/AegisScope" data-aegisscope-author="农夫三拳" data-aegisscope-seal="7e3d86f677640553" data-aegisscope-auth="99adf0bf9fce6701" data-render-rev="3a8af8b3495b42ba" data-cache-rev="364f36fd1a2315ac">
+<body class="aegis-fresh" data-aegisscope-origin="flagqaz/AegisScope" data-aegisscope-author="农夫三拳" data-aegisscope-seal="7e3d86f677640553" data-aegisscope-auth="99adf0bf9fce6701" data-render-rev="3a8af8b3495b42ba" data-cache-rev="364f36fd1a2315ac">
   <header class="toolbar">
     <div class="title-row">
       <div class="mark" aria-hidden="true"><img src="icons/icon48.png" alt=""></div>
@@ -30,7 +31,7 @@
         </div>
         <div class="title-stats">
           <button id="versionBadge" class="version" title="检查更新">
-            <span>V2.2.9</span>
+            <span>V2.3.1</span>
             <i id="updateDot" class="update-dot" hidden></i>
           </button>
           <span id="count" class="badge">0</span>
@@ -45,12 +46,12 @@
             <small>采集 / 识别 / 审计</small>
           </div>
           <div class="action-row primary-actions">
-            <button id="downloadAll" title="保存代码资源或完整页面">保存资产</button>
-            <button id="siteSniff" title="网站技术栈、框架、CMS、库与响应头识别">网站嗅探</button>
-            <button id="beianQuery" title="当前页面备案号、公安备案号和备案链接查询">备案查询</button>
-            <button id="securityScan" title="对代码资源运行泄露扫描">泄露扫描</button>
-            <button id="vulnScan" title="源码审计与低风险接口漏扫">漏洞审计</button>
-            <button id="vueTools" title="Vue Router runtime tools">Vue 工具</button>
+            <button id="downloadAll" title="保存代码资源或完整页面"><svg class="nav-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3v12m-4-4 4 4 4-4M4 16v5h16v-5"/></svg>保存资产</button>
+            <button id="siteSniff" title="网站技术栈、框架、CMS、库与响应头识别"><svg class="nav-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M10 3a7 7 0 1 0 0 14 7 7 0 0 0 0-14m5 12 6 6M7 10h6m-3-3v6"/></svg>网站嗅探</button>
+            <button id="beianQuery" title="当前页面备案号、公安备案号和备案链接查询"><svg class="nav-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M5 3h14v18H5zM8 7h8M8 11h8M8 15h5"/></svg>备案查询</button>
+            <button id="securityScan" title="对代码资源运行泄露扫描"><svg class="nav-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3 3 7v5c0 5 9 9 9 9s9-4 9-9V7zM8 12l3 3 5-6"/></svg>泄露扫描</button>
+            <button id="vulnScan" title="源码审计与低风险接口漏扫"><svg class="nav-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M9 6V4h6v2M7 9h10v7a5 5 0 0 1-10 0zM12 9v11M3 10h4m10 0h4M3 15h4m10 0h4M5 21l3-3m8 0 3 3"/></svg>漏洞审计</button>
+            <button id="vueTools" title="Vue Router runtime tools"><svg class="nav-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M3 5h4l5 9 5-9h4L12 21z"/></svg>Vue 工具</button>
           </div>
         </section>
         <section class="action-group action-group-tools" aria-label="浏览器辅助与全局操作">
@@ -59,12 +60,12 @@
             <small>刷新 / 辅助 / 清理</small>
           </div>
           <div class="action-row assist-actions">
-            <button id="refresh" title="重新采集并刷新当前插件页面数据">刷新全部</button>
-            <button id="copyUnlock" title="解除当前页面复制、选择、右键菜单限制">解除复制</button>
-            <button id="webrtcGuard" title="限制 WebRTC 直连 UDP，降低真实 IP 泄漏风险">WebRTC</button>
-            <button id="uaSwitch" title="为当前标签页修改请求 User-Agent">UA 修改</button>
-            <button id="charsetSwitch" title="为当前标签页修改页面编码">编码修改</button>
-            <button id="clear" class="danger" title="清空当前标签页插件记录">清空记录</button>
+            <button id="refresh" title="重新采集并刷新当前插件页面数据"><svg class="nav-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M20 7v5h-5M4 17v-5h5M6 6a8 8 0 0 1 13 3M18 18A8 8 0 0 1 5 15"/></svg>刷新全部</button>
+            <button id="copyUnlock" title="解除当前页面复制、选择、右键菜单限制"><svg class="nav-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M8 8h12v13H8zM4 16H2V2h12v3"/></svg>解除复制</button>
+            <button id="webrtcGuard" title="限制 WebRTC 直连 UDP，降低真实 IP 泄漏风险"><svg class="nav-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3 4 6v6c0 5 8 9 8 9s8-4 8-9V6zM8 12l3 3 5-6"/></svg>WebRTC</button>
+            <button id="uaSwitch" title="为当前标签页修改请求 User-Agent"><svg class="nav-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M3 4h18v16H3zM11 10a2 2 0 1 0-4 0 2 2 0 0 0 4 0M5 17c0-5 8-5 8 0M16 9h2m-2 4h2"/></svg>UA 修改</button>
+            <button id="charsetSwitch" title="为当前标签页修改页面编码"><svg class="nav-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M3 5h11M8 2v3M5 5c0 6 6 9 6 9M12 5c0 6-6 10-9 10M14 21l4-12 4 12M16 17h4"/></svg>编码修改</button>
+            <button id="clear" class="danger" title="清空当前标签页插件记录"><svg class="nav-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M3 6h18M9 6V3h6v3M6 6l1 15h10l1-15M10 10v7m4-7v7"/></svg>清空记录</button>
           </div>
         </section>
       </div>
@@ -185,36 +186,25 @@
         </div>
         <button id="charsetClose" title="关闭网站编码修改面板">关闭</button>
       </div>
-      <section class="assist-card assist-dev-card">
-        <div class="assist-card-head">
-          <span>当前功能</span>
-          <b id="charsetState">开发中</b>
-        </div>
-        <p>功能正在开发中，后续版本会接入当前标签页页面编码修改能力。</p>
-      </section>
-      <!-- 网站编码修改功能开发预留，后续开发时取消注释。
       <section class="assist-card">
         <div class="assist-card-head">
-          <span>响应编码</span>
-          <b>未设置</b>
+          <span>页面编码</span><b id="charsetState">读取中</b>
         </div>
-        <p>为当前标签页重写主页面和常见文本资源编码，适合乱码页面临时修正。</p>
-        <select id="charsetValue">
-          <option value="UTF-8">UTF-8</option>
-          <option value="GB18030">GB18030</option>
-          <option value="GBK">GBK</option>
-          <option value="Big5">Big5</option>
-          <option value="Shift_JIS">Shift_JIS</option>
-          <option value="EUC-KR">EUC-KR</option>
-          <option value="ISO-8859-1">ISO-8859-1</option>
-          <option value="windows-1252">windows-1252</option>
-        </select>
+        <div class="ua-facts charset-facts">
+          <label>当前解析编码<strong id="charsetDetected">—</strong></label>
+          <label>当前设置<strong id="charsetOverride">浏览器默认</strong></label>
+        </div>
+        <p id="charsetScope">仅作用于当前标签页的当前网站，切换网站或关闭标签页后自动清除。</p>
+        <label for="charsetValue">选择页面编码</label>
+        <select id="charsetValue" aria-label="选择页面编码"></select>
+        <label class="assist-check"><input type="checkbox" id="charsetFrames">同时应用于本站嵌入页面（iframe）</label>
+        <p>应用后刷新页面重新读取文字。恢复默认会移除设置并刷新；图片、脚本和接口响应保持原样。</p>
         <div class="assist-inline-actions">
-          <button id="charsetApply">应用并刷新</button>
-          <button id="charsetReset">恢复默认</button>
+          <button id="charsetApply" disabled>应用并刷新</button>
+          <button id="charsetReset" disabled>恢复默认并刷新</button>
+          <button id="charsetRead">重新检测</button>
         </div>
       </section>
-      -->
     </section>
     <section id="sniffPanel" class="sniff-panel" hidden>
       <div class="sniff-top-feature">
@@ -288,7 +278,7 @@
       <div class="mark mini" aria-hidden="true"><img src="icons/icon48.png" alt=""></div>
       <div>
         <strong>玄镜 AegisScope 使用许可与免责声明</strong>
-        <span>V2.2.9</span>
+        <span>V2.3.1</span>
       </div>
     </div>
     <div class="terms-body">
@@ -315,12 +305,12 @@
       <button id="saveClose" title="关闭">关闭</button>
     </header>
     <div class="save-grid">
-      <button id="saveJsPackage" class="save-card">
+      <button id="saveJsPackage" class="save-card"><svg class="nav-icon save-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M8 8 4 12l4 4m8-8 4 4-4 4M14 5l-4 14"/></svg>
         <span class="save-kicker">JS</span>
         <strong>代码资源包</strong>
         <span>保存页面 HTML、JS、SourceMap、JSON、Vue/TS 等代码资源 ZIP。</span>
       </button>
-      <button id="saveHtmlSingle" class="save-card">
+      <button id="saveHtmlSingle" class="save-card"><svg class="nav-icon save-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 3h16v18H4zM4 8h16M7 5.5h.1M10 5.5h.1M8 12h8m-8 4h5"/></svg>
         <span class="save-kicker">HTML</span>
         <strong>单文件页面</strong>
         <span>将当前页面尽量内联为一个完整 HTML 文件后下载。</span>
@@ -338,7 +328,7 @@
     <div class="update-body">
       <div class="update-version-row">
         <span>当前版本</span>
-        <b id="currentVersionText">V2.2.9</b>
+        <b id="currentVersionText">V2.3.1</b>
       </div>
       <div class="update-version-row">
         <span>最新版本</span>
@@ -380,6 +370,7 @@
   <script src="rules/sniff-rules.js"></script>
   <script src="scripts/modules/sniff-rule-loader.js"></script>
   <script src="scripts/modules/ua-profiles.js"></script>
+  <script src="scripts/modules/charset-profiles.js"></script>
   <script src="scripts/popup.js"></script>
 </body>
 </html>

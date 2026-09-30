@@ -34,6 +34,8 @@ const state = {
   stopped: false,
   running: false,
   controller: null,
+  controllers: new Set(),
+  coverage: null,
   responses: [],
   findings: [],
   selectedId: '',
@@ -41,9 +43,7 @@ const state = {
   analyzedResponseKeys: new Set()
 };
 const FINGERPRINT_MAX_OBSERVED_RESPONSES = 80;
-const FINGERPRINT_ANALYZE_BATCH_SIZE = 8;
 const FINGERPRINT_MAX_TEXT_BODY = 320000;
-const FINGERPRINT_RULE_YIELD_INTERVAL = 900;
 const FINGERPRINT_MAX_SCAN_URLS = 56;
 const FINGERPRINT_MAX_RESOURCE_URLS = 14;
 const FINGERPRINT_MAX_RESPONSE_BYTES = 2 * 1024 * 1024;
@@ -68,7 +68,12 @@ async function init() {
     state.selectedId = item.dataset.id || '';
     renderEvidence();
   });
-  if (state.baseUrl) setTimeout(startScan, 80);
+  document.getElementById('expand').addEventListener('click', () => startScan('expanded'));
+  chrome.tabs.onUpdated.addListener((id, change) => {
+    if (id === tabId && state.running && (change.status === 'loading' || (change.url && change.url !== state.baseUrl))) stopScan('目标页面已变化');
+  });
+  chrome.tabs.onRemoved.addListener(id => { if (id === tabId && state.running) stopScan('目标标签页已关闭'); });
+  if (state.baseUrl) setTimeout(() => startScan(), 80);
 }
 
 async function loadTarget() {
@@ -77,6 +82,7 @@ async function loadTarget() {
     const tab = await chrome.tabs.get(tabId);
     state.tab = tab;
     state.baseUrl = tab?.url || '';
+    if (!/^https?:\/\//i.test(state.baseUrl)) throw new Error('unsupported target');
     state.origin = state.baseUrl ? new URL(state.baseUrl).origin : '';
     const host = state.baseUrl ? new URL(state.baseUrl).host : '';
     els.origin.textContent = host ? `当前目标：${host}` : '当前目标：-';
@@ -84,6 +90,8 @@ async function loadTarget() {
     els.targetUrl.textContent = state.baseUrl || '';
     els.scanState.textContent = '待扫描';
   } catch {
+    state.tab = null;state.baseUrl = '';state.origin = '';
+    state.responses = [];state.findings = [];
     els.origin.textContent = '当前目标：-';
     els.targetHost.textContent = '-';
     els.targetUrl.textContent = '';
@@ -91,65 +99,106 @@ async function loadTarget() {
   }
 }
 
-async function startScan() {
-  if (!state.baseUrl || state.running) return;
-  state.stopped = false;
-  state.running = true;
-  state.responses = [];
-  state.findings = [];
-  state.selectedId = '';
-  state.evidenceByRule = new Map();
-  state.analyzedResponseKeys = new Set();
-  setScanState('扫描中', '采集页面信号');
-  render();
-
+const fingerprintProfiles = {
+  standard: { urls: FINGERPRINT_MAX_SCAN_URLS, resources: FINGERPRINT_MAX_RESOURCE_URLS, bodyChars: FINGERPRINT_MAX_TEXT_BODY, responseBytes: FINGERPRINT_MAX_RESPONSE_BYTES, deadlineMs: 90000 },
+  expanded: { urls: 168, resources: 56, bodyChars: 1280000, responseBytes: 4 * 1024 * 1024, deadlineMs: 180000 }
+};
+function fingerprintLimits() { return fingerprintProfiles[state.coverage?.profile] || fingerprintProfiles.standard; }
+function coverageIssue(url, reason) {
+  if (!state.coverage) return;
+  if (!state.coverage.issues.some(x => x.url === url && x.reason === reason)) state.coverage.issues.push({ url, reason });
+}
+function renderCoverage() {
+  const el = document.getElementById('coverage');
+  const c = state.coverage;
+  if (!c) { el.textContent = ''; return; }
+  const failed = state.responses.filter(r => r.error).length;
+  el.innerHTML = `<strong>本轮范围：${state.responses.filter(r => r.analyzed).length} 个响应已分析 · ${failed} 个失败 · ${state.responses.filter(r => r.truncated).length} 个截断 · ${c.skipped} 个候选未请求</strong>` +
+    '<p>无命中不代表不存在该技术；HTTP 404/410 探测结果视为路径不存在，不视为传输失败。未加载、跨域或采样之外的内容可能未覆盖。</p>' +
+    (c.issues.length ? `<details><summary>查看 ${c.issues.length} 条范围说明</summary>${c.issues.map(x => `<p>${escapeHtml(x.url)}：${escapeHtml(x.reason)}</p>`).join('')}</details>` : '');
+}
+async function startScan(profile = 'standard') {
+  if (state.running) return;
+  if (!fingerprintProfiles[profile]) profile = 'standard';
+  state.stopped = false; state.running = true;
+  state.responses = []; state.findings = []; state.selectedId = '';
+  state.evidenceByRule = new Map(); state.analyzedResponseKeys = new Set();
+  state.coverage = { profile, startedAt: new Date().toISOString(), status: 'running', issues: [], skipped: 0, planned: 0, requested: 0 };
+  setScanState('扫描中', '采集页面信号'); render();
+  const deadline = setTimeout(() => stopScan('达到本轮总时间预算，可扩展扫描或稍后重试'), fingerprintLimits().deadlineMs);
+  let analysisTail = Promise.resolve();
+  const analyze = responses => {
+    analysisTail = analysisTail.then(async () => {
+      await analyzeResponseBatch(responses, true);
+      state.findings = resolveFindings(finalizeAnalyzedFindings());
+      render();
+    });
+    return analysisTail;
+  };
   try {
+    await loadTarget();
+    if (!state.baseUrl) throw new Error('目标不可用');
     const observed = await getObservedSignals();
+    if (state.stopped) return;
+    if (observed.page?.url && observed.page.url !== state.baseUrl) throw new Error('目标页面已变化，请重新开始扫描');
     state.responses = observedResponses(observed);
-    await analyzeResponseBatch(state.responses);
-    state.findings = resolveFindings(finalizeAnalyzedFindings());
-    render();
+    await analyze(state.responses);
     const urls = buildScanUrls(observed);
-    const total = urls.length;
-    let pendingResponses = [];
-    for (let i = 0; i < urls.length; i++) {
-      if (state.stopped) break;
-      setScanState('扫描中', `请求 ${i + 1}/${total}`);
-      const item = await fetchFingerprintUrl(urls[i]);
-      if (item) {
-        state.responses.push(item);
-        pendingResponses.push(item);
+    state.coverage.planned = urls.length;
+    let cursor = 0, nextStart = 0;
+    const work = async () => {
+      while (!state.stopped && cursor < urls.length) {
+        const slot = cursor++, url = urls[slot];
+        const delay = Math.max(0, nextStart - performance.now());
+        nextStart = Math.max(nextStart, performance.now()) + 100;
+        if (delay) await new Promise(r => setTimeout(r, delay));
+        if (state.stopped) { state.coverage.skipped++; break; }
+        const current = await chrome.tabs.get(tabId);
+        if (current.url !== state.baseUrl) { stopScan('目标页面已变化'); state.coverage.skipped++; break; }
+        state.coverage.requested++;
+        setScanState('扫描中', `请求 ${state.coverage.requested}/${urls.length}`);
+        const item = await fetchFingerprintUrl(url);
+        if (item) {
+          state.responses.push(item);
+          if (item.error) coverageIssue(url, item.error);
+          if (item.truncated) coverageIssue(url, '响应或正文达到上限，仅完成部分内容分析；可使用扩展扫描');
+          if (item.decodeWarning) coverageIssue(url, item.decodeWarning);
+          await analyze([item]);
+        }
       }
-      const shouldAnalyze = i === urls.length - 1 || (i + 1) % FINGERPRINT_ANALYZE_BATCH_SIZE === 0;
-      if (shouldAnalyze) {
-        await analyzeResponseBatch(pendingResponses);
-        pendingResponses = [];
-        state.findings = resolveFindings(finalizeAnalyzedFindings());
-        render();
-        await yieldToBrowser();
-      }
-    }
-    if (!state.stopped) {
-      setScanState('扫描完成', `${state.findings.length} 项命中`);
-      els.overallState.textContent = state.findings.length ? '已识别' : '无命中';
-    }
+    };
+    // At most two requests, staggered by 100 ms; all analysis is serialized.
+    const settled = await Promise.allSettled([work(), work()]);
+    state.coverage.skipped += urls.length - cursor;
+    const rejected = settled.find(x => x.status === 'rejected');
+    if (rejected) throw rejected.reason;
   } catch (err) {
-    setScanState('扫描失败', err.message || String(err));
-    els.overallState.textContent = '失败';
+    state.coverage.status = 'failed'; coverageIssue(state.baseUrl, err.message || String(err));
   } finally {
+    clearTimeout(deadline);
+    // Finish matching content already read, even after a user stop. Aborted reads remain explicitly failed.
+    await analysisTail.catch(err => { state.coverage.status = 'failed'; coverageIssue(state.baseUrl, `分析失败：${err.message}`); });
     state.running = false;
+    if (state.stopped) state.coverage.status = 'stopped';
+    else if (state.coverage.status !== 'failed') state.coverage.status = state.coverage.issues.length ? 'partial' : 'completed';
+    state.coverage.finishedAt = new Date().toISOString();
+    setScanState(({ completed: '扫描完成', partial: '部分完成', stopped: '已停止', failed: '扫描失败' })[state.coverage.status],
+      `${state.findings.length} 项命中 · ${state.coverage.issues.length} 条范围说明`);
     render();
   }
 }
 
-function stopScan() {
+function stopScan(reason = '用户停止扫描') {
+  if (typeof reason !== 'string') reason = '用户停止扫描';
   state.stopped = true;
+  for (const controller of state.controllers) controller.abort();
   if (state.controller) state.controller.abort();
-  if (state.running) setScanState('已停止', `${state.responses.length} 个响应`);
+  if (state.running) { coverageIssue(state.baseUrl, reason); setScanState('正在停止', '正在保留并分析已读取内容'); }
 }
 
 function releaseScanResources() {
   state.stopped = true;
+  for (const controller of state.controllers) controller.abort();
   if (state.controller) state.controller.abort();
   state.running = false;
   state.responses = [];
@@ -165,8 +214,9 @@ function yieldToBrowser() {
 }
 
 async function getObservedSignals() {
-  const background = await chrome.runtime.sendMessage({ type: 'GET_SNIFF_DATA', tabId }).catch(() => ({}));
-  const page = await collectPageSignals().catch(() => ({}));
+  const background = await chrome.runtime.sendMessage({ type: 'GET_SNIFF_DATA', tabId }).catch(e => { coverageIssue(state.baseUrl, `后台采集失败：${e.message}`); return {}; });
+  const page = await collectPageSignals().catch(e => { coverageIssue(state.baseUrl, `页面采集失败：${e.message}`); return {}; });
+  for (const warning of page.coverage || []) coverageIssue(page.url, warning);
   const resources = [
     ...(background?.resources || []),
     ...(background?.scripts || []),
@@ -212,7 +262,7 @@ function observedResponses(observed) {
       body: '',
       faviconHash: ''
     });
-    if (out.length >= FINGERPRINT_MAX_OBSERVED_RESPONSES) break;
+    if (out.length >= FINGERPRINT_MAX_OBSERVED_RESPONSES) { coverageIssue(state.baseUrl, '被动响应采样达到 80 条上限'); break; }
   }
   return out;
 }
@@ -230,13 +280,14 @@ function isRelevantObservedResource(item) {
 async function collectPageSignals() {
   const [result] = await chrome.scripting.executeScript({
     target: { tabId },
-    func: collectPageSignalsInPage
+    func: collectPageSignalsInPage,
+    args: [fingerprintLimits().bodyChars]
   });
   return result?.result || {};
 }
 
-function collectPageSignalsInPage() {
-  const maxTextBody = 320000;
+function collectPageSignalsInPage(maxTextBody = 320000) {
+  const html = document.documentElement.outerHTML;
   const abs = (value) => {
     try { return new URL(value, location.href).href; } catch { return ''; }
   };
@@ -249,7 +300,8 @@ function collectPageSignalsInPage() {
     .map(abs)
     .filter(Boolean)
     .slice(0, 180);
-  const links = Array.from(document.querySelectorAll('link[href], a[href]'))
+  const linkNodes = document.querySelectorAll('link[rel~="stylesheet"][href], link[rel*="icon"][href], link[rel~="modulepreload"][href]');
+  const links = Array.from(linkNodes)
     .map((node) => node.getAttribute('href'))
     .filter(Boolean)
     .map(abs)
@@ -258,7 +310,14 @@ function collectPageSignalsInPage() {
   return {
     url: location.href,
     title: document.title || '',
-    html: document.documentElement.outerHTML.slice(0, maxTextBody),
+    html: html.slice(0, maxTextBody),
+    coverage: [
+      html.length > maxTextBody ? 'HTML 采集已截断' : '',
+      linkNodes.length > 280 ? '静态链接列表已截断' : '',
+      iconUrls.length > 6 ? '图标候选超过 6 项，仅探测前 6 项' : '',
+      document.scripts.length > 180 ? '脚本 URL 列表已截断' : '',
+      performance.getEntriesByType('resource').length > 500 ? '性能资源列表已截断' : ''
+    ].filter(Boolean),
     iconUrls,
     scripts,
     links,
@@ -285,12 +344,14 @@ function buildScanUrls(observed) {
 
   const resourceUrls = [];
   for (const url of observed.page?.scripts || []) resourceUrls.push(url);
-  for (const url of observed.page?.links || []) resourceUrls.push(url);
+  for (const url of observed.page?.links || []) { if (/\.(?:js|mjs|css|ico|png|svg|webp)(?:[?#]|$)/i.test(url)) resourceUrls.push(url); }
   for (const item of observed.resources || []) {
     const url = typeof item === 'string' ? item : item.url || item.name || '';
     if (/\.(?:js|css)(?:[?#]|$)/i.test(url) || /(?:favicon|apple-touch-icon|icon|logo)[^/?#]*\.(?:ico|png|svg|webp)(?:[?#]|$)/i.test(url)) resourceUrls.push(url);
   }
-  for (const url of uniqueList(resourceUrls).slice(0, FINGERPRINT_MAX_RESOURCE_URLS)) add(url);
+  const eligible = uniqueList(resourceUrls).filter(url => { try { return new URL(url, state.baseUrl).origin === state.origin; } catch { return false; } });
+  if (eligible.length > fingerprintLimits().resources) coverageIssue(state.baseUrl, `资源候选 ${eligible.length} 项，本轮选择前 ${fingerprintLimits().resources} 项`);
+  for (const url of eligible.slice(0, fingerprintLimits().resources)) add(url);
 
   const passiveText = [
     observed.page?.title || '',
@@ -324,7 +385,11 @@ function buildScanUrls(observed) {
   }
   probeEntries.sort((a, b) => b.priority - a.priority);
   for (const entry of probeEntries) add(entry.url);
-  return Array.from(urls).slice(0, FINGERPRINT_MAX_SCAN_URLS);
+  if (urls.size > fingerprintLimits().urls) {
+    state.coverage.skipped += urls.size - fingerprintLimits().urls;
+    coverageIssue(state.baseUrl, `URL 候选 ${urls.size} 项，本轮最多 ${fingerprintLimits().urls} 项`);
+  }
+  return Array.from(urls).slice(0, fingerprintLimits().urls);
 }
 
 function fingerprintProbePriority(rule, passiveText) {
@@ -357,6 +422,7 @@ function uniqueList(items) {
 async function fetchFingerprintUrl(url) {
   const controller = new AbortController();
   state.controller = controller;
+  state.controllers.add(controller);
   const timer = setTimeout(() => controller.abort(), 9000);
   try {
     const response = await fetch(url, {
@@ -368,23 +434,28 @@ async function fetchFingerprintUrl(url) {
       headers: { 'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8' }
     });
     const type = response.headers.get('content-type') || '';
-    const bytes = await readResponseBytesLimited(response, FINGERPRINT_MAX_RESPONSE_BYTES);
+    const read = await readResponseBytesLimited(response, fingerprintLimits().responseBytes);
+    const bytes = read.bytes;
     const isText = /text|json|xml|javascript|html|css|svg/i.test(type) || bytes.length < 1024 * 1024;
-    const body = isText ? decodeBytes(bytes, type).slice(0, FINGERPRINT_MAX_TEXT_BODY) : '';
+    const decoded = isText ? decodeBytes(bytes, type) : '';
+    const body = decoded.slice(0, fingerprintLimits().bodyChars);
+    const truncated = read.truncated || decoded.length > fingerprintLimits().bodyChars;
     const headers = {};
     response.headers.forEach((value, key) => {
       headers[key.toLowerCase()] = headers[key.toLowerCase()] || [];
       headers[key.toLowerCase()].push(value);
     });
     const title = titleFromHtml(body);
-    const faviconHash = looksLikeIcon(url, type) ? mmh3Hash32(formatBase64(bytes)) : '';
+    const faviconHash = !read.truncated && response.ok && looksLikeIcon(url, type) ? mmh3Hash32(formatBase64(bytes)) : '';
     return {
       url: response.url || url,
       requestedUrl: url,
       status: response.status,
       type,
       kind: responseKind(response.url || url, type),
-      length: bytes.length,
+      length: bytes.length, truncated,
+      error: !response.ok && ![404, 410].includes(response.status) ? `HTTP ${response.status}` : undefined,
+      decodeWarning: decoded.includes('\ufffd') ? '存在解码替换字符，字符集可能不匹配' : undefined,
       headers,
       title,
       body,
@@ -406,7 +477,8 @@ async function fetchFingerprintUrl(url) {
     };
   } finally {
     clearTimeout(timer);
-    if (state.controller === controller) state.controller = null;
+    state.controllers.delete(controller);
+    if (state.controller === controller) state.controller = state.controllers.values().next().value || null;
   }
 }
 
@@ -414,19 +486,19 @@ async function readResponseBytesLimited(response, maxBytes) {
   const reader = response.body?.getReader?.();
   if (!reader) {
     const bytes = new Uint8Array(await response.arrayBuffer());
-    return bytes.byteLength > maxBytes ? bytes.subarray(0, maxBytes) : bytes;
+    return { bytes: bytes.byteLength > maxBytes ? bytes.subarray(0, maxBytes) : bytes, truncated: bytes.byteLength > maxBytes };
   }
   const chunks = [];
-  let total = 0;
+  let total = 0, truncated = false;
   try {
-    while (total < maxBytes) {
+    while (true) {
       const { done, value } = await reader.read();
       if (done) break;
       const remaining = maxBytes - total;
       const chunk = value.byteLength > remaining ? value.subarray(0, remaining) : value;
       chunks.push(chunk);
       total += chunk.byteLength;
-      if (value.byteLength > remaining) break;
+      if (value.byteLength > remaining) { truncated = true; await reader.cancel(); break; }
     }
     if (total >= maxBytes) await reader.cancel().catch(() => {});
   } finally {
@@ -438,24 +510,27 @@ async function readResponseBytesLimited(response, maxBytes) {
     merged.set(chunk, offset);
     offset += chunk.byteLength;
   }
-  return merged;
+  return { bytes: merged, truncated };
 }
 
-async function analyzeResponseBatch(responses) {
-  const rules = getPreparedFingerprintRules();
+async function analyzeResponseBatch(responses, finishRead = false) {
+  const rules = await prepareFingerprintRulesCooperatively();
   let processed = 0;
   for (const response of responses || []) {
-    if (state.stopped) break;
-    const key = analyzedResponseKey(response);
-    if (state.analyzedResponseKeys.has(key)) continue;
+    if (state.stopped && !finishRead) break;
+    const key = await analyzedResponseKey(response);
+    if (state.analyzedResponseKeys.has(key)) { response.analyzed = true; continue; }
     state.analyzedResponseKeys.add(key);
-    await analyzeSingleResponse(response, rules);
+    await analyzeSingleResponse(response, rules, finishRead);
+    response.analyzed = true;
     processed += 1;
     if (processed % 3 === 0) await yieldToBrowser();
   }
 }
 
-function analyzedResponseKey(response) {
+async function analyzedResponseKey(response) {
+  const content = new TextEncoder().encode(`${JSON.stringify(response.headers || {})}\n${response.title || ''}\n${response.body || ''}`);
+  const digest = Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256', content)), n => n.toString(16).padStart(2, '0')).join('');
   return [
     response.url || '',
     response.requestedUrl || '',
@@ -463,15 +538,17 @@ function analyzedResponseKey(response) {
     response.kind || '',
     response.type || '',
     response.length || String(response.body || '').length,
-    response.faviconHash || ''
+    response.faviconHash || '', digest
   ].join('|');
 }
 
-async function analyzeSingleResponse(response, rules) {
+async function analyzeSingleResponse(response, rules, finishRead = false) {
+  if (response.error) return;
   const mask = responseSourceMask(response);
-  let scanned = 0;
+  let slicedAt = performance.now();
   for (const rule of rules) {
-    if (state.stopped) break;
+    if (state.stopped && !finishRead) break;
+    if (performance.now() - slicedAt >= 6) { await yieldToBrowser(); slicedAt = performance.now(); }
     if (isGenericFingerprintName(rule.name)) continue;
     if (rule.sourceMask && !(rule.sourceMask & mask)) continue;
     const bucket = state.evidenceByRule.get(rule.id) || { rule, evidences: [], version: '' };
@@ -482,8 +559,7 @@ async function analyzeSingleResponse(response, rules) {
       if (!bucket.version && evidence.version) bucket.version = evidence.version;
     }
     if (bucket.evidences.length) state.evidenceByRule.set(rule.id, bucket);
-    scanned += 1;
-    if (scanned % FINGERPRINT_RULE_YIELD_INTERVAL === 0) await yieldToBrowser();
+
   }
 }
 
@@ -492,9 +568,10 @@ function finalizeAnalyzedFindings() {
   for (const bucket of state.evidenceByRule.values()) {
     const rule = bucket.rule;
     const uniq = uniqueEvidence(bucket.evidences);
-    const score = scoreFinding(uniq);
+    const independent = independentEvidence(uniq);
+    const score = scoreFinding(independent);
     if (score < (rule.minScore || 60)) continue;
-    if (!shouldAcceptFinding(rule, uniq, score)) continue;
+    if (!shouldAcceptFinding(rule, independent, score)) continue;
     hits.push({
       id: rule.id,
       name: rule.name,
@@ -507,10 +584,7 @@ function finalizeAnalyzedFindings() {
   return hits;
 }
 
-function getPreparedFingerprintRules() {
-  const rules = window.AEGISSCOPE_FINGERPRINT_RULES || [];
-  if (preparedFingerprintRules && preparedFingerprintRules.length === rules.length) return preparedFingerprintRules;
-  preparedFingerprintRules = rules.map((rule) => {
+function prepareFingerprintRule(rule) {
     let sourceMask = 0;
     for (const matcher of rule.matchers || []) {
       sourceMask |= sourceMaskForMatcher(matcher);
@@ -521,8 +595,21 @@ function getPreparedFingerprintRules() {
     }
     rule.sourceMask = sourceMask;
     return rule;
-  });
+}
+function getPreparedFingerprintRules() {
+  const rules = window.AEGISSCOPE_FINGERPRINT_RULES || [];
+  if (!preparedFingerprintRules || preparedFingerprintRules.length !== rules.length) preparedFingerprintRules = rules.map(prepareFingerprintRule);
   return preparedFingerprintRules;
+}
+async function prepareFingerprintRulesCooperatively() {
+  const rules = window.AEGISSCOPE_FINGERPRINT_RULES || [];
+  if (preparedFingerprintRules?.length === rules.length) return preparedFingerprintRules;
+  const prepared = []; let slicedAt = performance.now();
+  for (const rule of rules) {
+    prepared.push(prepareFingerprintRule(rule));
+    if (performance.now() - slicedAt >= 6) { await yieldToBrowser(); slicedAt = performance.now(); }
+  }
+  preparedFingerprintRules = prepared; return prepared;
 }
 
 function sourceMaskForMatcher(matcher) {
@@ -725,7 +812,18 @@ function isWeakEvidenceSignal(item) {
   ].includes(value);
 }
 
+function independentEvidence(evidences) {
+  const unique = new Map();
+  for (const evidence of evidences) {
+    const key = JSON.stringify([evidence.source, String(evidence.key || '').replace(/:\d+$/, ''), String(evidence.value || '').trim().toLowerCase()]);
+    const prior = unique.get(key);
+    if (!prior || evidence.score > prior.score) unique.set(key, evidence);
+  }
+  return Array.from(unique.values());
+}
+
 function scoreFinding(evidences) {
+  evidences = independentEvidence(evidences);
   const sorted = evidences.map((item) => Math.max(1, Math.min(100, item.score || 60))).sort((a, b) => b - a);
   if (!sorted.length) return 0;
   let score = sorted[0];
@@ -736,6 +834,10 @@ function scoreFinding(evidences) {
 }
 
 function render() {
+  els.start.disabled = state.running; document.getElementById('expand').disabled = state.running;
+  els.stop.disabled = !state.running;
+  els.exportJson.disabled = els.exportMd.disabled = state.running || !state.coverage;
+  renderCoverage();
   const filtered = filteredFindings();
   const high = state.findings.filter((item) => item.score >= 90).length;
   const versions = state.findings.filter((item) => item.version).length;
@@ -808,9 +910,11 @@ function renderEvidence() {
 }
 
 async function exportJson() {
+  if (state.running || !state.coverage) return;
   const payload = {
     generatedAt: new Date().toISOString(),
     target: state.baseUrl,
+    coverage: state.coverage,
     findings: state.findings,
     responses: state.responses.map(({ body, ...rest }) => rest)
   };
@@ -818,6 +922,7 @@ async function exportJson() {
 }
 
 async function exportMarkdown() {
+  if (state.running || !state.coverage) return;
   const lines = [
     '# 玄镜 AegisScope 指纹扫描报告',
     '',
@@ -828,6 +933,11 @@ async function exportMarkdown() {
     '## 命中结果',
     ''
   ];
+  lines.push(`- 扫描状态: ${state.coverage.status}`);
+  for (const warning of state.coverage.issues) lines.push(`- 范围说明: ${warning.url} — ${warning.reason}`);
+  for (const response of state.responses) {
+    if (response.error || response.truncated || !response.analyzed) lines.push(`- 响应: ${response.requestedUrl || response.url} — ${response.error || ''} ${response.truncated ? '内容截断' : ''} ${!response.analyzed ? '未分析' : ''}`);
+  }
   for (const item of state.findings) {
     lines.push(`### ${item.name}${item.version ? ` ${item.version}` : ''}`);
     lines.push(`- 分类: ${categoryLabel(item.category)}`);

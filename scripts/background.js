@@ -3,7 +3,7 @@
 // resource-profile:flagqaz/AegisScope:6f9e24bb9fce110c:background
 const __pageBootHintsBackground = Object.freeze({ cache: 'panel:V2.2.7:7e3d86f67764:99adf0bf9fce', sync: '30d9325267eb756a', mode: 'external-auth-required' });
 const __runtimeResourceProfileBackground = 'flagqaz/AegisScope:99adf0bf9fce110c:background';
-importScripts('modules/ua-profiles.js');
+importScripts('modules/ua-profiles.js', 'modules/charset-profiles.js', 'modules/charset-service.js');
 
 const tabScripts = new Map();
 const tabObservations = new Map();
@@ -20,8 +20,79 @@ const UA_ISOLATED_SCRIPT_ID = 'aegisscope-ua-simple-isolated';
 const UA_RULE_ID_START = 330000;
 const UA_RULE_ID_END = 330199;
 const UA_MATCHES = ['http://*/*', 'https://*/*'];
+let uaMutation = Promise.resolve();
+function queueUaMutation(work) {
+  const result = uaMutation.then(work);
+  uaMutation = result.catch(() => {});
+  return result;
+}
 const TAB_SCRIPT_MAX_ITEMS = 1600;
 const TAB_INLINE_MAX_CHARS = 8 * 1024 * 1024;
+const TAB_RECORDS_KEY = 'aegisscope_tab_records_v1';
+const tabRecordUrls = new Map();
+let tabRecordsDirty = false, tabRecordsTimer = null, tabRecordsWriting = null;
+const tabDataReady = restoreTabRecords();
+
+async function restoreTabRecords() {
+  if (!chrome.storage.session) return;
+  try {
+    const [stored, tabs] = await Promise.all([chrome.storage.session.get(TAB_RECORDS_KEY), chrome.tabs.query({})]);
+    const open = new Map(tabs.map((tab) => [tab.id, tab.url]));
+    for (const entry of stored[TAB_RECORDS_KEY] || []) {
+      if (!entry.url || open.get(entry.id) !== entry.url) continue;
+      tabRecordUrls.set(entry.id, entry.url);
+      tabScripts.set(entry.id, new Map((entry.scripts || []).map((item) => [item.url, item])));
+      if (entry.observation) tabObservations.set(entry.id, { ...entry.observation, resources: new Map(entry.observation.resources || []) });
+    }
+  } catch { /* New sessions or unavailable storage start with empty observations. */ }
+}
+
+function scheduleTabRecords() {
+  tabRecordsDirty = true;
+  if (tabRecordsTimer == null) tabRecordsTimer = setTimeout(() => {
+    tabRecordsTimer = null;
+    flushTabRecords().catch(() => {});
+  }, 120);
+}
+
+async function flushTabRecords() {
+  await tabDataReady;
+  if (tabRecordsWriting) return tabRecordsWriting;
+  if (!tabRecordsDirty || !chrome.storage.session) return;
+  tabRecordsWriting = (async () => {
+    while (tabRecordsDirty) {
+      tabRecordsDirty = false;
+      // Keep the cache within session-storage capacity, evicting oldest records first.
+      const budget = Math.min(4 * 1024 * 1024, Math.floor((chrome.storage.session.QUOTA_BYTES || 1024 * 1024) * 0.55));
+      const encode = new TextEncoder();
+      const ids = [...new Set([...tabScripts.keys(), ...tabObservations.keys()])].sort((a, b) => (tabObservations.get(b)?.updatedAt || 0) - (tabObservations.get(a)?.updatedAt || 0));
+      const entries = [];
+      let remaining = budget - 2;
+      const bytes = (value) => encode.encode(JSON.stringify(value)).byteLength + 1;
+      for (const id of ids) {
+        const observation = tabObservations.get(id);
+        const entry = { id, url: tabRecordUrls.get(id) || '', scripts: [],
+          observation: observation ? { main: observation.main, updatedAt: observation.updatedAt, resources: [] } : null };
+        const overhead = bytes(entry);
+        if (overhead > remaining) continue;
+        remaining -= overhead;
+        for (const item of [...(tabScripts.get(id)?.values() || [])].sort((a, b) => b.lastSeen - a.lastSeen)) {
+          const size = bytes(item);
+          if (size <= remaining) { entry.scripts.push(item);remaining -= size; }
+        }
+        for (const item of [...(observation?.resources || [])].reverse()) {
+          const size = bytes(item);
+          if (size <= remaining) { entry.observation.resources.push(item);remaining -= size; }
+        }
+        entry.scripts.reverse();
+        entry.observation?.resources.reverse();
+        entries.push(entry);
+      }
+      await chrome.storage.session.set({ [TAB_RECORDS_KEY]: entries });
+    }
+  })();
+  try { await tabRecordsWriting; } finally { tabRecordsWriting = null; }
+}
 const UA_RESOURCE_TYPES = [
   'main_frame',
   'sub_frame',
@@ -103,6 +174,7 @@ function recordObservation(details) {
 
   if (details.type === 'main_frame' && details.frameId === 0) {
     observation.main = item;
+    tabRecordUrls.set(details.tabId, details.url);
   }
 
   const key = `${details.type}:${details.url}`;
@@ -152,7 +224,10 @@ function trimTabScriptBucket(bucket) {
 
 chrome.webRequest.onCompleted.addListener(
   (details) => {
+    tabDataReady.then(async () => {
+    if (!tabRecordUrls.has(details.tabId) && details.tabId >= 0) tabRecordUrls.set(details.tabId, await getTabUrl(details.tabId));
     recordObservation(details);
+    scheduleTabRecords();
     if (details.tabId < 0) return;
     const isScript = details.type === 'script' || /\.m?js(\?|$)/i.test(details.url);
     if (!isScript) return;
@@ -162,15 +237,20 @@ chrome.webRequest.onCompleted.addListener(
       fromCache: details.fromCache,
       type: details.type
     });
+    }).catch(() => {});
   },
   { urls: ['<all_urls>'] },
   ['responseHeaders']
 );
 
 chrome.tabs.onUpdated.addListener((tabId, changeInfo) => {
+  tabDataReady.then(async () => {
+    if (changeInfo.url) tabRecordUrls.set(tabId, changeInfo.url);
   if (changeInfo.status === 'loading') {
     tabScripts.delete(tabId);
     tabObservations.delete(tabId);
+    tabRecordUrls.set(tabId, changeInfo.url || await getTabUrl(tabId));
+    scheduleTabRecords();
     (async () => {
       const url = changeInfo.url || await getTabUrl(tabId);
       await autoApplyCopyUnlock(tabId, url);
@@ -181,11 +261,16 @@ chrome.tabs.onUpdated.addListener((tabId, changeInfo) => {
       await autoApplyCopyUnlock(tabId, url);
     })().catch(() => {});
   }
+  }).catch(() => {});
 });
 
 chrome.tabs.onRemoved.addListener((tabId) => {
+  tabDataReady.then(() => {
   tabScripts.delete(tabId);
   tabObservations.delete(tabId);
+  tabRecordUrls.delete(tabId);
+  scheduleTabRecords();
+  }).catch(() => {});
   tabCopyUnlock.delete(tabId);
   clearClosedTabUaConfig(tabId).catch(() => {});
 });
@@ -495,16 +580,17 @@ async function testWebrtcPage(tabId) {
     world: 'MAIN',
     func: () => {
       const mediaDevices = navigator.mediaDevices || null;
+      const blocked = window.__AEGISSCOPE_WEBRTC_BLOCKED_APIS__;
       const exposed = {
         RTCPeerConnection: typeof window.RTCPeerConnection !== 'undefined' || typeof window.webkitRTCPeerConnection !== 'undefined' || typeof window.mozRTCPeerConnection !== 'undefined',
         RTCSessionDescription: typeof window.RTCSessionDescription !== 'undefined' || typeof window.webkitRTCSessionDescription !== 'undefined' || typeof window.mozRTCSessionDescription !== 'undefined',
-        getUserMedia: typeof navigator.getUserMedia !== 'undefined' || typeof navigator.webkitGetUserMedia !== 'undefined' || typeof navigator.mozGetUserMedia !== 'undefined',
-        mediaDevices: Boolean(mediaDevices),
-        enumerateDevices: typeof mediaDevices?.enumerateDevices === 'function',
+        getUserMedia: [navigator.getUserMedia, navigator.webkitGetUserMedia, navigator.mozGetUserMedia].some((fn) => typeof fn === 'function' && fn !== blocked?.deny),
+        mediaDevices: Boolean(mediaDevices && mediaDevices !== blocked?.mediaDevices),
+        enumerateDevices: typeof mediaDevices?.enumerateDevices === 'function' && mediaDevices.enumerateDevices !== blocked?.mediaDevices?.enumerateDevices,
         RTCDataChannel: typeof window.RTCDataChannel !== 'undefined',
         RTCIceCandidate: typeof window.RTCIceCandidate !== 'undefined'
       };
-      return { href: location.href, exposed };
+      return { href: location.href, exposed, blockedStubs: Boolean(blocked && mediaDevices === blocked.mediaDevices) };
     }
   });
   const frames = (results || []).map((item) => item?.result).filter(Boolean);
@@ -513,7 +599,7 @@ async function testWebrtcPage(tabId) {
     ok: true,
     frames: frames.length,
     exposedCount,
-    protected: exposedCount === 0,
+    protected: frames.length > 0 && exposedCount === 0,
     details: frames.slice(0, 10)
   };
 }
@@ -769,6 +855,7 @@ async function injectUa(tabId, config) {
 }
 
 async function restoreUaSimple() {
+  return queueUaMutation(async () => {
   let config = await getUaConfig();
   if (config.enabled && config.mode === 'tab') {
     const tabExists = await chrome.tabs.get(config.tabId).then(() => true).catch(() => false);
@@ -776,35 +863,49 @@ async function restoreUaSimple() {
   }
   await replaceUaRules(config).catch(() => {});
   await ensureUaScripts(config).catch(() => {});
+  });
 }
 
 async function clearClosedTabUaConfig(tabId) {
+  return queueUaMutation(async () => {
   const config = await getUaConfig();
   if (!config.enabled || config.mode !== 'tab' || Number(config.tabId) !== Number(tabId)) return;
   const reset = await saveUaConfig(defaultUaConfig());
   await replaceUaRules(reset).catch(() => {});
   await ensureUaScripts(reset).catch(() => {});
+  });
 }
 
 async function getUaState(tabId) {
+  await uaMutation;
   const config = await getUaConfig();
-  return { ok: true, config, profiles: uaProfiles(), ruleCount: uaRules(config).length };
+  const rules = (await chrome.declarativeNetRequest.getSessionRules()).filter((rule) => rule.id >= UA_RULE_ID_START && rule.id <= UA_RULE_ID_END);
+  const enabled = config.enabled && rules.some((rule) => rule.action.requestHeaders?.some((header) => header.header === 'user-agent' && header.value === selectedUa(config)));
+  return { ok: true, config: { ...config, enabled }, profiles: uaProfiles(), ruleCount: rules.length };
 }
 
 async function setUaState(tabId, input, reload = false) {
-  const config = await saveUaConfig(input, tabId);
-  const ruleCount = await replaceUaRules(config);
-  const registered = await ensureUaScripts(config);
-  const injectedFrames = await injectUa(tabId, config);
-  if (reload && tabId) await chrome.tabs.reload(tabId, { bypassCache: true }).catch(() => {});
-  return { ok: true, config, profiles: uaProfiles(), ruleCount, registered, injectedFrames };
+  return queueUaMutation(async () => {
+    const config = normalizeUaConfig(input, tabId);
+    if (config.enabled && /[\x00-\x1f\x7f]/.test(selectedUa(config))) throw new Error('UA 不能包含换行或控制字符，请使用单行 User-Agent');
+    const oldRules = (await chrome.declarativeNetRequest.getSessionRules()).filter((rule) => rule.id >= UA_RULE_ID_START && rule.id <= UA_RULE_ID_END);
+    const ruleCount = await replaceUaRules(config);
+    let saved;
+    try { saved = await saveUaConfig(config, tabId); }
+    catch (error) {
+      const ids = uaRules(config).map((rule) => rule.id);
+      await chrome.declarativeNetRequest.updateSessionRules({ removeRuleIds: ids, addRules: oldRules });
+      throw error;
+    }
+    const registered = await ensureUaScripts(saved);
+    const injectedFrames = await injectUa(tabId, saved);
+    if (reload && tabId) await chrome.tabs.reload(tabId, { bypassCache: true }).catch(() => {});
+    return { ok: true, config: saved, profiles: uaProfiles(), ruleCount, registered, injectedFrames };
+  });
 }
 
 async function resetUaState(tabId) {
-  const config = await saveUaConfig(defaultUaConfig(), tabId);
-  const ruleCount = await replaceUaRules(config);
-  const registered = await ensureUaScripts(config);
-  return { ok: true, config, profiles: uaProfiles(), ruleCount, registered };
+  return setUaState(tabId, defaultUaConfig());
 }
 
 async function injectCopyUnlock(tabId, enabled, options = {}) {
@@ -889,7 +990,12 @@ async function autoApplyCopyUnlock(tabId, url) {
   await applyCopyUnlock(tabId, true, { aggressive: true }, true);
 }
 
-chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
+chrome.runtime.onMessage.addListener(function handleMessage(message, sender, sendResponse, restored = false) {
+  if (!restored && ['GET_SCRIPTS', 'GET_SNIFF_DATA', 'CLEAR_SCRIPTS', 'CONTENT_SCRIPTS_FOUND'].includes(message?.type)) {
+    tabDataReady.then(() => flushTabRecords()).then(() => handleMessage(message, sender, sendResponse, true))
+      .catch((error) => sendResponse({ ok: false, error: error.message }));
+    return true;
+  }
   if (message?.type === 'GET_SCRIPTS') {
     const tabId = message.tabId;
     const bucket = tabScripts.get(tabId);
@@ -913,7 +1019,8 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   if (message?.type === 'CLEAR_SCRIPTS') {
     tabScripts.delete(message.tabId);
     tabObservations.delete(message.tabId);
-    sendResponse({ ok: true });
+    scheduleTabRecords();
+    flushTabRecords().then(() => sendResponse({ ok: true }), (error) => sendResponse({ ok: false, error: error.message }));
     return true;
   }
 
@@ -1002,6 +1109,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       sendResponse({ ok: false });
       return true;
     }
+    tabRecordUrls.set(tabId, sender.tab?.url || sender.url || tabRecordUrls.get(tabId) || '');
     for (const item of message.items || []) {
       if (item.url) {
         recordScript(tabId, item.url, { type: 'script' });
@@ -1024,7 +1132,8 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       }
       trimTabScriptBucket(bucket);
     }
-    sendResponse({ ok: true, count: getTabBucket(tabId).size });
+    scheduleTabRecords();
+    flushTabRecords().then(() => sendResponse({ ok: true, count: getTabBucket(tabId).size }), (error) => sendResponse({ ok: false, error: error.message }));
     return true;
   }
 });

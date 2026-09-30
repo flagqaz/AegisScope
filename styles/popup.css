@@ -478,6 +478,17 @@ main {
   color: #9fc7d5;
   font-size: 10px;
 }
+.charset-facts {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+.charset-facts strong {
+  color: #10283a;
+  font-size: 14px;
+  overflow-wrap: anywhere;
+}
+#charsetScope {
+  overflow-wrap: anywhere;
+}
 .ua-options {
   margin: 0 0 8px;
   color: #9fc7d5;
@@ -1229,9 +1240,9 @@ dialog#viewer pre {
   min-height: 34px;
   margin: 0 12px 12px;
   padding: 8px 10px;
-  border: 1px solid rgba(97,222,255,0.16);
+  border: 1px solid #d5e1e9;
   border-radius: 7px;
-  background: rgba(5,11,19,0.52);
+  background: #f3f8fc;
   color: var(--muted);
   font-family: var(--mono);
   font-size: 11px;

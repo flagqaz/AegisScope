@@ -5,13 +5,14 @@
   <meta name="resource-profile" content="flagqaz/AegisScope:99adf0bf9fce110c:38279b8e5561ab7b">
   <title>玄镜 AegisScope 泄露扫描</title>
   <link rel="stylesheet" href="../styles/scan.css">
+  <link rel="stylesheet" href="../styles/workbench-fresh.css">
 </head>
-<body>
+<body class="aegis-page" data-page="scan">
   <header class="page-header">
     <div class="brand">
       <div class="mark" aria-hidden="true"><img src="../icons/icon48.png" alt=""></div>
       <div>
-        <h1>玄镜 AegisScope 泄露扫描 <span class="version">V2.2.9</span></h1>
+        <h1>玄镜 AegisScope 泄露扫描 <span class="version">V2.3.1</span></h1>
         <span id="origin" class="origin"></span>
       </div>
     </div>
@@ -21,8 +22,10 @@
       </a>
       <a class="top-author-link" href="https://github.com/flagqaz/AegisScope" target="_blank" rel="noreferrer">by.农夫三拳</a>
       <button id="rescan">重新扫描</button>
-      <button id="exportJson">导出 JSON</button>
-      <button id="exportMd">导出 Markdown</button>
+      <button id="stopScan" disabled>停止扫描</button>
+      <button id="expandedScan" title="提高单文件、资源数量和总量上限，重新扫描当前页面">扩展扫描</button>
+      <button id="exportJson" disabled>导出 JSON</button>
+      <button id="exportMd" disabled>导出 Markdown</button>
     </div>
   </header>
 
@@ -33,12 +36,12 @@
       <div class="sub" id="riskScore"></div>
     </div>
     <div class="card sev critical">
-      <div class="label">严重 <span class="hint">可利用</span></div>
+      <div class="label">严重 <span class="hint">待核验</span></div>
       <div class="value" id="cnt-critical">0</div>
       <div class="sub" id="cnt-critical-conf">-</div>
     </div>
     <div class="card sev high">
-      <div class="label">高危 <span class="hint">可利用</span></div>
+      <div class="label">高危 <span class="hint">待核验</span></div>
       <div class="value" id="cnt-high">0</div>
       <div class="sub" id="cnt-high-conf">-</div>
     </div>
@@ -54,7 +57,7 @@
     <div class="card meta">
       <div class="label">置信度</div>
       <div class="value" id="conf-actionable">0</div>
-      <div class="sub" id="conf-breakdown">已确认 / 大概率 / 疑似</div>
+      <div class="sub" id="conf-breakdown">高置信 / 较可信 / 疑似</div>
     </div>
     <div class="card meta">
       <div class="label">扫描进度</div>
@@ -63,8 +66,10 @@
     </div>
   </section>
 
-  <section class="card-block">
-    <h2>代码资产画像</h2>
+  <section id="coverage" class="card-block" aria-live="polite"></section>
+
+  <details class="card-block asset-profile">
+    <summary>代码资产画像（展开查看）</summary>
     <div class="row"><span class="k">加密库</span><span id="detected-libs" class="v">-</span></div>
     <div class="row"><span class="k">加密算法</span><span id="detected-algos" class="v">-</span></div>
     <div class="row"><span class="k">解密/验证方式</span><span id="detected-decryptions" class="v">-</span></div>
@@ -76,8 +81,8 @@
     <div class="row"><span class="k">模块路径</span><span id="detected-modules" class="v">-</span></div>
     <div class="row"><span class="k">弱算法/模式</span><span id="detected-weak" class="v">-</span></div>
     <div class="row"><span class="k">其他暴露面</span><span id="detected-exposures" class="v">-</span></div>
-    <div class="row hint-row">画像信息用于辅助研判；漏洞结论以下方 Findings 为准。</div>
-  </section>
+    <div class="row hint-row">画像与 Findings 均为静态检测线索，需要结合业务核验。</div>
+  </details>
 
   <section class="filters">
     <input id="search" type="search" placeholder="搜索 finding、规则、文件或命中内容" />
@@ -96,9 +101,9 @@
       <option value="pii">个人信息</option>
     </select>
     <select id="confidence">
-      <option value="actionable">可利用 confirmed + likely</option>
-      <option value="confirmed">仅已确认</option>
-      <option value="all">全部含疑似</option>
+      <option value="all" selected>全部含疑似</option>
+      <option value="actionable">高置信 + 较可信</option>
+      <option value="confirmed">仅高置信</option>
     </select>
     <label class="chk"><input type="checkbox" id="groupByFile" checked /> 按文件分组</label>
   </section>

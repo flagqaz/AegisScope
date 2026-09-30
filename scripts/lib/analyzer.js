@@ -8,12 +8,13 @@
 const SEVERITY_WEIGHT = { critical: 4, high: 3, medium: 2, low: 1, info: 0 };
 const CONFIDENCE_WEIGHT = { confirmed: 3, likely: 2, suspected: 1 };
 
-function getLineCol(source, index) {
-  let line = 1, col = 1;
-  for (let i = 0; i < index && i < source.length; i++) {
-    if (source.charCodeAt(i) === 10) { line++; col = 1; } else { col++; }
+function getLineCol(source, index, starts) {
+  let lo = 0, hi = starts.length;
+  while (lo + 1 < hi) {
+    const mid = (lo + hi) >>> 1;
+    if (starts[mid] <= index) lo = mid; else hi = mid;
   }
-  return { line, col };
+  return { line: lo + 1, col: index - starts[lo] + 1 };
 }
 
 function getContext(source, start, end, pad = 80) {
@@ -27,7 +28,7 @@ function getContext(source, start, end, pad = 80) {
 }
 
 function dedupeKey(rule, value, line) {
-  return `${rule.id}::${String(value).slice(0, 80)}::${line}`;
+  return `${rule.id}::${String(value)}::${line}`;
 }
 
 function bumpMap(map, value, extra = {}) {
@@ -145,12 +146,14 @@ function collectCodeAssetMeta(source) {
 
 function checkContextRequire(rule, source, offset, len) {
   if (!rule.contextRequire) return true;
+  rule.contextRequire.lastIndex = 0;
   const w = rule.contextWindow || 240;
   const seg = source.slice(Math.max(0, offset - w), Math.min(source.length, offset + len + w));
   return rule.contextRequire.test(seg);
 }
 function checkContextDeny(rule, source, offset, len) {
   if (!rule.contextDeny) return false;
+  rule.contextDeny.lastIndex = 0;
   const w = rule.contextWindow || 240;
   const seg = source.slice(Math.max(0, offset - w), Math.min(source.length, offset + len + w));
   return rule.contextDeny.test(seg);
@@ -163,6 +166,15 @@ function analyzeSource(source, meta = {}) {
 
   const findings = [];
   const seen = new Set();
+  const lineStarts = [0];
+  for (let i = 0; i < source.length; i++) {
+    const c = source.charCodeAt(i);
+    if (c === 13) { if (source.charCodeAt(i + 1) === 10) i++; lineStarts.push(i + 1); }
+    else if (c === 10 || c === 0x2028 || c === 0x2029) lineStarts.push(i + 1);
+  }
+  const perRuleLimit = Math.max(1, Math.min(10000, meta.analysisLimits?.perRule || 200));
+  const totalLimit = Math.max(1, Math.min(50000, meta.analysisLimits?.findings || 10000));
+  const ruleLimits = [], validationErrors = new Set();
   const stats = {
     bySeverity: { critical: 0, high: 0, medium: 0, low: 0, info: 0 },
     byConfidence: { confirmed: 0, likely: 0, suspected: 0 },
@@ -170,9 +182,9 @@ function analyzeSource(source, meta = {}) {
   };
 
   for (const rule of R.RULES) {
-    const re = rule.regex;
-    if (!re) continue;
-    re.lastIndex = 0;
+    if (!rule.regex) continue;
+    const flags = rule.regex.flags.includes('g') ? rule.regex.flags : rule.regex.flags + 'g';
+    const re = new RegExp(rule.regex.source, flags);
 
     let m, perRule = 0;
     while ((m = re.exec(source)) !== null) {
@@ -194,7 +206,7 @@ function analyzeSource(source, meta = {}) {
         let v;
         try {
           v = rule.validate({ match: matched, captured, source, offset: start });
-        } catch { v = { drop: true }; }
+        } catch { validationErrors.add(rule.id); v = { drop: true }; }
         if (v && v.drop) continue;
         if (v) {
           if (v.severity) severity = v.severity;
@@ -203,12 +215,16 @@ function analyzeSource(source, meta = {}) {
         }
       }
 
-      const { line, col } = getLineCol(source, start);
-      const key = dedupeKey(rule, captured, line);
+      const { line, col } = getLineCol(source, start, lineStarts);
+      const key = dedupeKey(rule, captured, start);
       if (seen.has(key)) continue;
       seen.add(key);
 
-      const ctx = getContext(source, start, end);
+      if (perRule >= perRuleLimit || findings.length >= totalLimit) {
+        ruleLimits.push(rule.id);
+        break;
+      }
+      const ctx = getContext(source, start, end, meta.contextSize || 80);
 
       findings.push({
         ruleId: rule.id,
@@ -218,8 +234,9 @@ function analyzeSource(source, meta = {}) {
         confidence,
         evidence,
         line, col, offset: start,
-        match: matched.length > 240 ? matched.slice(0, 240) + '…' : matched,
-        captured: String(captured).length > 240 ? String(captured).slice(0, 240) + '…' : captured,
+        match: matched,
+        captured,
+        verification: 'static-pattern',
         context: ctx,
         description: rule.description || '',
         exploit: rule.exploit || '',
@@ -230,7 +247,7 @@ function analyzeSource(source, meta = {}) {
       stats.bySeverity[severity] = (stats.bySeverity[severity] || 0) + 1;
       stats.byConfidence[confidence] = (stats.byConfidence[confidence] || 0) + 1;
       stats.byCategory[rule.category] = (stats.byCategory[rule.category] || 0) + 1;
-      if (++perRule >= 200) break;
+      perRule++;
     }
   }
 
@@ -334,6 +351,8 @@ function analyzeSource(source, meta = {}) {
     findings,
     stats: {
       ...stats,
+      ruleLimits,
+      validationErrors: Array.from(validationErrors),
       cryptoLibs: Array.from(cryptoLibs),
       cryptoAlgos: Array.from(cryptoAlgos),
       decryptions: Array.from(decryptions.values()),

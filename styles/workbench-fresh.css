@@ -1,0 +1,110 @@
+/* Shared V2.3.1 workbench theme. Scoped to extension-owned pages. */
+:root { color-scheme: light; --ink: #17243b; --muted: #5e6d84; --line: #e2e8f0; --accent: #356df3; --accent-strong: #2dd4bf; --mint: #2dd4bf; --green: #087b68; --yellow: #946000; --red: #b42340; --warn: #b42340; --gold: #946000; }
+html:has(body.aegis-page), body.aegis-page { background: #f6f8fc !important; color: #17243b !important; }
+body.aegis-page { font-family: 'Segoe UI','Microsoft YaHei UI',sans-serif; font-size: 13px; padding: 20px; margin: 0; }
+body.aegis-page :where(div,section,header,footer,main,span,strong,b,p,small,label,summary,details,h1,h2,h3,h4,em,a,button,input,select,textarea,li) { color: #17243b !important; }
+body.aegis-page :where(p,small,.sub,.label,.meta,.desc,.hint,.origin,.target-url,.runtime-desc,.status,.k,.candidate-progress) { color: #5e6d84 !important; font-weight: 400 !important; }
+body.aegis-page :where(h1,h2,h3,h4,strong,b,.title,.runtime-title) { font-weight: 600 !important; }
+body.aegis-page h1 { font-size: 21px; line-height: 1.4; letter-spacing: -.3px; }
+body.aegis-page h2 { font-size: 14px; }
+body.aegis-page .page-header { position: relative; top: auto; margin: 0 auto; width: 100%; max-width: 1440px; display: flex; flex-wrap: wrap; gap: 16px; padding: 18px 20px; background: radial-gradient(ellipse at 96% 0,#e9faf6,transparent 45%),#fff !important; border: 1px solid #e5ebf3 !important; border-radius: 16px; box-shadow: 0 3px 12px #17243b04 !important; backdrop-filter: none; }
+body.aegis-page .brand { min-width: 0; max-width: 100%; }
+body.aegis-page .brand h1 { white-space: normal; overflow-wrap: anywhere; }
+body.aegis-page .brand > div { min-width: 0; }
+body.aegis-page .mark { flex: 0 0 44px; width: 44px; height: 44px; border-radius: 13px; outline: 1px solid #ccefe9; outline-offset: 3px; box-shadow: 0 4px 12px #17243b18 !important; }
+body.aegis-page .origin { max-width: 620px; font-size: 11px; margin-top: 5px; }
+body.aegis-page .version { color: #087b68 !important; background: #eafaf5 !important; border: 0 !important; border-radius: 7px; padding: 3px 8px; font-size: 10px; box-shadow: none !important; font-weight: 500 !important; white-space: nowrap; }
+body.aegis-page .actions { flex-wrap: wrap; gap: 8px; }
+body.aegis-page button { min-height: 34px; padding: 7px 12px; border: 1px solid #dce4ef !important; border-radius: 9px; color: #334155 !important; background: #fff !important; font-size: 12px; font-weight: 500 !important; box-shadow: none !important; transition: background-color .14s ease,border-color .14s ease,box-shadow .14s ease; cursor: pointer; }
+body.aegis-page button:hover { color: #2555c5 !important; background: #edf3ff !important; border-color: #b9ccf8 !important; }
+body.aegis-page button.primary, body.aegis-page[data-page='scan'] #rescan, body.aegis-page[data-page='jquery-vuln-check'] #refreshCandidates { color: #fff !important; background: #356df3 !important; border-color: #356df3 !important; box-shadow: inset 0 1px 0 #ffffff26,0 4px 10px #356df31a !important; }
+body.aegis-page button.primary:hover, body.aegis-page[data-page='scan'] #rescan:hover { background: #285ddc !important; }
+body.aegis-page button.danger { color: #b42340 !important; background: #fff3f5 !important; border-color: #f3d9e0 !important; }
+body.aegis-page button:disabled { color: #8793a6 !important; background: #f1f4f8 !important; border-color: #e5ebf3 !important; opacity: 1 !important; box-shadow: none !important; cursor: not-allowed; }
+body.aegis-page :is(button,a,input,select,textarea,summary):focus-visible { outline: 2px solid #356df3 !important; outline-offset: 3px; }
+body.aegis-page :is(input,select,textarea) { min-width: 0; color: #17243b !important; background: #fff !important; border: 1px solid #dce4ef !important; border-radius: 8px; font: inherit; font-weight: 400 !important; box-shadow: none !important; }
+body.aegis-page :is(input[type='checkbox'],input[type='radio']) { min-height: 0; width: auto; height: auto; accent-color: #356df3; }
+body.aegis-page :is(input,textarea)::placeholder { color: #5e6d84 !important; }
+body.aegis-page :is(.repo-link,.top-author-link,.author-link) { color: #5e6d84 !important; background: transparent !important; border: 0 !important; box-shadow: none !important; font-weight: 500 !important; text-decoration: none; }
+body.aegis-page .repo-link svg, body.aegis-page .repo-link svg * { fill: #5e6d84 !important; }
+body.aegis-page :is(.repo-link,.top-author-link,.author-link):hover { color: #2555c5 !important; background: #edf3ff !important; }
+body.aegis-page :is(.summary,.toolbar,.workspace,.grid,.matrix,.filters,.card-block,.runtime-control,.target-strip,.coverage-panel,.page-footer) { width: 100%; max-width: 1440px; margin-left: auto !important; margin-right: auto !important; }
+body.aegis-page :is(.summary,.workspace,.grid,.matrix) { padding-left: 0; padding-right: 0; }
+body.aegis-page :is(.card,.panel,.group,.card-block,.runtime-control,.target-strip,.coverage-panel,.poc-panel) { color: #17243b !important; background: #fff !important; border: 1px solid #e5ebf3 !important; border-radius: 14px; box-shadow: 0 3px 12px #17243b04 !important; min-width: 0; }
+body.aegis-page .card { padding: 16px; }
+body.aegis-page .card.score { background: #eef4ff !important; border-color: #dfe8fb !important; }
+body.aegis-page .value { color: #2555c5 !important; font-family: 'Segoe UI','Microsoft YaHei UI',sans-serif; font-size: 26px; font-weight: 600 !important; font-variant-numeric: tabular-nums; letter-spacing: -.5px; }
+body.aegis-page .label { font-size: 12px; letter-spacing: 0; text-transform: none; }
+body.aegis-page .sub { line-height: 1.6; font-size: 11px; }
+body.aegis-page :is(.panel-head,.group-head) { background: #fbfcfe !important; border-color: #edf1f7 !important; padding: 14px 16px; flex-wrap: wrap; gap: 10px; }
+body.aegis-page :is(.toolbar,.filters) { background: #fff !important; border: 1px solid #e5ebf3 !important; border-radius: 12px; padding: 12px; box-shadow: none !important; min-width: 0; }
+body.aegis-page .panel-head .filters { border: 0 !important; padding: 0; width: auto; flex: 1; }
+body.aegis-page .filters { flex-wrap: wrap; }
+body.aegis-page .filters > :is(input,select) { flex: 1 1 150px; max-width: 100%; }
+body.aegis-page .filters input[type='search'] { flex-basis: 240px; }
+body.aegis-page :is(.fp-item,.evidence-item,.route,.finding,.api,.candidate) { color: #17243b !important; background: #fff !important; border-color: #e5ebf3 !important; border-radius: 10px; box-shadow: none !important; min-width: 0; }
+body.aegis-page :is(.fp-item,.route,.candidate):hover { background: #f7faff !important; border-color: #b9ccf8 !important; }
+body.aegis-page :is(.fp-item.active,.route.active) { background: #edf3ff !important; border-color: #8dabef !important; }
+body.aegis-page :is(.evidence-head,.evidence-title,.file-head,.response-title) { color: #17243b !important; background: #f5f8fd !important; border-color: #e5ebf3 !important; }
+body.aegis-page :is(.tag,.badge,.state,.risk) { color: #2555c5 !important; background: #edf3ff !important; border: 1px solid #dfE8fb !important; border-radius: 6px; box-shadow: none !important; font-weight: 500 !important; }
+/* Risk colors are semantic and retain their text labels. */
+body.aegis-page :is(.tag.critical,.badge.critical,.sev.critical .value) { color: #b42340 !important; }
+body.aegis-page :is(.tag.critical,.badge.critical) { background: #fff0f3 !important; border-color: #f3d5de !important; }
+body.aegis-page :is(.tag.high,.badge.high,.sev.high .value) { color: #b84312 !important; }
+body.aegis-page :is(.tag.high,.badge.high) { background: #fff3eb !important; border-color: #f5decf !important; }
+body.aegis-page :is(.tag.medium,.badge.medium,.hint.warn,.risk,.notice) { color: #946000 !important; background: #fff8e8 !important; border-color: #f0e4c5 !important; }
+body.aegis-page .sev.medium .value { color: #946000 !important; }
+body.aegis-page :is(.tag.low,.badge.low) { color: #2555c5 !important; background: #edf3ff !important; }
+body.aegis-page .sev.critical { border-top: 3px solid #dc637b !important; }
+body.aegis-page .sev.high { border-top: 3px solid #eb9b72 !important; }
+body.aegis-page .sev.medium { border-top: 3px solid #eac267 !important; }
+body.aegis-page .sev.low { border-top: 3px solid #89a9ed !important; }
+body.aegis-page :is(.hint.ok,.tag.ok,.tag.success) { color: #087b68 !important; background: #eaf8f2 !important; }
+body.aegis-page :is(.hint.bad,.tag.bad,.tag.error) { color: #b42340 !important; background: #fff0f3 !important; }
+body.aegis-page :is(pre,code,xmp,.ctx,.preview,.source-box,.response-part) { color: #334155 !important; background: #f5f8fc !important; border-color: #e5ebf3 !important; border-radius: 8px; font-size: 12px; line-height: 1.7; box-shadow: none !important; overflow-wrap: anywhere; }
+body.aegis-page pre { max-width: 100%; white-space: pre-wrap; }
+body.aegis-page :is(.origin,.method,.target-url,.path,.desc,.meta,.v) { overflow-wrap: anywhere; }
+body.aegis-page .runtime-control { background: linear-gradient(105deg,#eef4ff,#f1faf8) !important; padding: 16px; }
+body.aegis-page .usage-tip { color: #5e6d84 !important; background: transparent !important; border-color: #dce7f6 !important; }
+body.aegis-page .page-footer { color: #5e6d84 !important; background: transparent !important; border: 0 !important; padding: 14px 0 !important; box-shadow: none !important; font-size: 11px; }
+body.aegis-page :is(.fingerprint-item,.evidence-card,.file-group) { background: #fff !important; border: 1px solid #e5ebf3 !important; border-radius: 10px; box-shadow: none !important; min-width: 0; }
+body.aegis-page .fingerprint-item.active { background: #edf3ff !important; border-color: #8dabef !important; }
+body.aegis-page .file-header { background: #f8faff !important; border-color: #edf1f7 !important; }
+body.aegis-page .file-header .url { color: #475569 !important; }
+body.aegis-page .sev-badge { border-radius: 5px; padding: 3px 6px; font-weight: 500 !important; }
+body.aegis-page .sev-badge.critical { color: #b42340 !important; background: #fff0f3 !important; border-color: #f3d5de !important; }
+body.aegis-page .sev-badge.high { color: #b84312 !important; background: #fff3eb !important; border-color: #f5decf !important; }
+body.aegis-page :is(.sev-badge.medium,.tag.warn) { color: #946000 !important; background: #fff8e8 !important; border-color: #f0e4c5 !important; }
+body.aegis-page :is(.sev-badge.low,.sev-badge.info,.conf-badge) { color: #2555c5 !important; background: #edf3ff !important; border-color: #dfe8fb !important; }
+body.aegis-page .tag.danger { color: #b42340 !important; background: #fff0f3 !important; border-color: #f3d5de !important; }
+body.aegis-page .route-list { align-content: start; grid-auto-rows: max-content; }
+body.aegis-page .route { min-height: 72px; padding: 14px; align-self: start; }
+body.aegis-page :is(.verification,.manual-review,.response-package) { color: #475569 !important; background: #f5f8fc !important; border-color: #e5ebf3 !important; border-radius: 8px; }
+body.aegis-page .verification .meta { color: #5e6d84 !important; }
+body.aegis-page dialog { max-width: min(600px,calc(100vw - 40px)); max-height: calc(100vh - 40px); overflow: auto; color: #17243b !important; background: #fff !important; border: 1px solid #e2e8f0 !important; border-radius: 16px; box-shadow: 0 20px 60px #17243b25 !important; }
+body.aegis-page dialog::backdrop { background: #17243b50; }
+body.aegis-page dialog :is(header,.dialog-actions) { background: #fff !important; border-color: #edf1f7 !important; }
+body.aegis-page :is(.route-list,.findings,.evidence-list,.candidate-list,pre) { scrollbar-width: thin; scrollbar-color: #cbd6e7 #f6f8fc; }
+body.aegis-page[data-page='jquery-vuln-check'] :is(.meta,.panel,.poc-panel,#verifyLog,#div) { background: #fff !important; border: 1px solid #e5ebf3 !important; border-radius: 12px; box-shadow: none !important; }
+body.aegis-page[data-page='jquery-vuln-check'] .candidate-progress i { background: #356df3 !important; }
+body.aegis-page[data-page='jquery-vuln-loader'] { padding: 0; }
+@media (max-width: 1000px) {
+  body.aegis-page .toolbar { grid-template-columns: minmax(0,1fr); }
+  body.aegis-page .toolbar :is(input,select) { min-width: 0; width: 100%; }
+  body.aegis-page .summary { grid-template-columns: repeat(2,minmax(0,1fr)); }
+  body.aegis-page :is(.matrix,.workspace,.grid) { grid-template-columns: minmax(0,1fr); }
+  body.aegis-page .page-header .actions { justify-content: flex-start; }
+  body.aegis-page .origin { max-width: calc(100vw - 120px); }
+}
+@media (max-width: 600px) {
+  body.aegis-page { padding: 12px; }
+  body.aegis-page .page-header { padding: 14px; }
+  body.aegis-page h1 { font-size: 18px; }
+  body.aegis-page :is(.runtime-control,.target-strip,.api-row,.topline) { flex-wrap: wrap; }
+  body.aegis-page :is(.runtime-actions,.api-actions,.inline-actions) { flex-wrap: wrap; }
+  body.aegis-page .api-row { display: flex; flex-direction: column; align-items: stretch; gap: 10px; }
+  body.aegis-page .api-row .method { width: 100%; }
+  body.aegis-page .api-actions { justify-content: flex-start; }
+  body.aegis-page .filters > :is(input,select) { width: 100%; }
+}
+@media (prefers-reduced-motion: reduce) { body.aegis-page * { transition: none !important; scroll-behavior: auto !important; } }

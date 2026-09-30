@@ -1392,3 +1392,8 @@ footer div {
   font-weight: 900 !important;
   color: #10283a !important;
 }
+/* Coverage feedback remains visible when no fingerprint matches. */
+.coverage-panel { margin: 16px 28px; padding: 14px; border: 1px solid #d5e1e9; border-radius: 12px; background: #fff; color: #173c52; overflow-wrap: anywhere; }
+.coverage-panel details { max-height: 240px; overflow: auto; }
+.coverage-panel p { margin: 8px 0; }
+button:disabled { opacity: .55; cursor: not-allowed; }

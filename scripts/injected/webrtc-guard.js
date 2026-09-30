@@ -74,6 +74,8 @@
     removeEventListener: () => {},
     dispatchEvent: () => false
   });
+  // Keep identities so self-checks can distinguish our denying stubs from native APIs.
+  window.__AEGISSCOPE_WEBRTC_BLOCKED_APIS__ = Object.freeze({ deny, mediaDevices: blockedMediaDevices });
   defineGetter(navigator, 'mediaDevices', blockedMediaDevices);
   if (navProto) defineGetter(navProto, 'mediaDevices', blockedMediaDevices);
 })();

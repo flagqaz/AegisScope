@@ -204,21 +204,65 @@
     return prioritized.map((path) => `${origin}${path}`).slice(0, 9);
   }
 
+  function inspectApiResponse(response = {}, method = 'GET') {
+    if (response.error || !response.status) return { kind: 'unknown', sensitive: false };
+    if ([401, 403].includes(response.status)) return { kind: 'denied', sensitive: false };
+    if (response.status < 200 || response.status >= 300) return { kind: 'unknown', sensitive: false };
+    const text = String(response.preview || '').trim();
+    if (['HEAD', 'OPTIONS'].includes(method) || !text) return { kind: 'empty', sensitive: false };
+    let data;
+    try { data = JSON.parse(text); } catch {}
+    if (data && typeof data === 'object' && !Array.isArray(data)) {
+      const code = String(data.code ?? data.status ?? '').toLowerCase();
+      const message = String(data.message ?? data.msg ?? data.error_description ?? data.error ?? '');
+      if (/^(?:401|403|unauthorized|forbidden)$/.test(code) ||
+          /(?:unauthorized|forbidden|not\s+(?:logged|authenticated)|(?:token|session).{0,24}(?:expired|invalid|missing)|未登录|请.{0,6}登录|登录.{0,6}(?:失效|过期)|无权限|没有权限|权限不足)/i.test(message)) {
+        return { kind: 'denied', sensitive: false };
+      }
+      if (data.success === false || data.ok === false || data.error ||
+          (/^\d+$/.test(code) && Number(code) >= 400)) return { kind: 'unknown', sensitive: false };
+    }
+    if (data === undefined) return { kind: /<\s*(?:!doctype|html|form|input)/i.test(text) ? 'html' : 'unknown', sensitive: false };
+    const value = data && typeof data === 'object' && !Array.isArray(data) && 'data' in data ? data.data : data;
+    const nonempty = value != null && value !== '' && (typeof value !== 'object' || Object.keys(value).length > 0);
+    if (!nonempty) return { kind: 'empty', sensitive: false };
+    let sensitive = false, visited = 0;
+    const walk = (obj, depth = 0) => {
+      if (!obj || typeof obj !== 'object' || depth > 6 || visited++ > 200) return;
+      for (const [key, val] of Object.entries(obj)) {
+        if (/^(?:password|passwd|access_?token|refresh_?token|token|secret|private_?key|access_?key|idcard|mobile|phone)$/i.test(key) &&
+            typeof val === 'string' && val.trim().length >= 6 && !/^(?:null|undefined|redacted|masked|\*+|x+)$/i.test(val.trim())) sensitive = true;
+        walk(val, depth + 1);
+      }
+    };
+    walk(value);
+    return { kind: 'data', sensitive };
+  }
+
+  function isBusinessActionUrl(value) {
+    try {
+      const url = new URL(value);
+      const action = [decodeURIComponent(url.pathname), ...['action', 'act', 'cmd', 'operation'].map((key) => url.searchParams.get(key) || '')].join('/');
+      return /(?:^|[\/_.-])(?:logout|signout|logoff|signoff|delete|remove|destroy|drop|reset|reboot|shutdown|submit|approve|revoke)(?:[\/_.-]|$)/i.test(action);
+    } catch { return true; }
+  }
+
   function inferVerificationStatus(finding, probeResult) {
     if (!probeResult || probeResult.error) return { status: 'unknown', detail: probeResult?.error || 'no result' };
     const checks = probeResult.checks || [];
-    const anonOk = checks.some((c) => c.anon?.status >= 200 && c.anon?.status < 300);
-    const anonDenied = checks.some((c) => c.anon?.status === 401 || c.anon?.status === 403);
-    const authOk = checks.some((c) => c.auth?.status >= 200 && c.auth?.status < 300);
-    const sensitivePreview = checks.some((c) => /(?:password|passwd|token|secret|idcard|身份证|手机号|mobile|accessKey|privateKey)/i.test(c.anon?.preview || ''));
+    const inspected = checks.map((c) => ({ ...c, a: inspectApiResponse(c.anon, c.method), b: inspectApiResponse(c.auth, c.method) }));
+    const anonData = inspected.some((c) => c.a.kind === 'data');
+    const anonDenied = inspected.length > 0 && inspected.every((c) => c.a.kind === 'denied');
+    const inconsistent = inspected.some((c) => c.a.kind === 'data' && c.b.kind === 'denied');
+    const sensitivePreview = inspected.some((c) => c.a.kind === 'data' && c.a.sensitive);
     const allowDanger = checks.some((c) => /\b(?:PUT|PATCH|DELETE|POST)\b/i.test(c.anon?.allow || ''));
     const type = finding?.type || '';
-    if (['unauthorized-api', 'sensitive-api'].includes(type) && anonOk) return { status: 'confirmed', detail: '匿名请求返回 2xx' };
-    if (type === 'auth-inconsistency' && anonOk && !authOk) return { status: 'confirmed', detail: '匿名可访问但带登录态失败，鉴权状态异常' };
-    if (type === 'data-exposure' && sensitivePreview) return { status: 'confirmed', detail: '匿名响应包含敏感字段关键字' };
+    if (['unauthorized-api', 'sensitive-api'].includes(type) && anonData) return { status: 'likely', detail: '匿名响应包含数据，是否需要鉴权仍需业务复核' };
+    if (type === 'auth-inconsistency' && inconsistent) return { status: 'likely', detail: '匿名数据与登录态拒绝响应不一致，需复核会话和业务权限' };
+    if (type === 'data-exposure' && sensitivePreview) return { status: 'likely', detail: '匿名响应含非空敏感字段，需核实数据性质及公开范围' };
     if (type === 'method-exposure' && allowDanger) return { status: 'likely', detail: 'OPTIONS 暴露变更类方法' };
-    if (anonDenied) return { status: 'not-reproduced', detail: '匿名请求被 401/403 拦截' };
-    return { status: 'unknown', detail: '安全探测未得到明确结论' };
+    if (anonDenied) return { status: 'not-reproduced', detail: '匿名请求被 HTTP 或业务鉴权拦截' };
+    return { status: 'unknown', detail: '仅状态码、空响应或页面内容不足以确认漏洞，待复核' };
   }
 
   function apiRiskScore(api, test) {
@@ -227,13 +271,14 @@
     for (const check of checks) {
       const anon = check.anon || {};
       const auth = check.auth || {};
-      const anonOk = anon.status >= 200 && anon.status < 300;
-      const authDenied = auth.status === 401 || auth.status === 403;
-      const authOk = auth.status >= 200 && auth.status < 300;
+      const anonInfo = inspectApiResponse(anon, check.method), authInfo = inspectApiResponse(auth, check.method);
+      const anonOk = anonInfo.kind === 'data';
+      const authDenied = authInfo.kind === 'denied';
+      const authOk = authInfo.kind === 'data';
       if (anonOk && (api?.sensitive || isSensitiveApi(test?.url))) score += 90;
       if (authDenied && anonOk) score += 110;
       if (authOk && anonOk && auth.preview && anon.preview && auth.preview !== anon.preview) score += 25;
-      if (anon.preview && /(?:password|passwd|token|secret|idcard|identity|mobile|phone|accessKey|privateKey|session|cookie)/i.test(anon.preview)) score += 120;
+      if (anonInfo.sensitive) score += 60;
       if (anon.allow && /\b(?:POST|PUT|PATCH|DELETE)\b/i.test(anon.allow)) score += 24;
       if (anon.status >= 500 || auth.status >= 500) score += 8;
       if (['POST', 'PUT', 'PATCH', 'DELETE'].includes(check.method) && anonOk) score += 18;
@@ -567,9 +612,27 @@
     score: 0,
     verifyingIds: new Set()
   };
+  const activeRequests = new Set();
+
+  async function syncAuditTarget(rejectChanged = false) {
+    const tab = await chrome.tabs.get(targetTabId);
+    if (!/^https?:\/\//i.test(tab.url || '')) throw new Error('目标页面不可用，请从 HTTP/HTTPS 页面重新打开工具');
+    const changed = state.baseUrl && state.baseUrl !== tab.url;
+    state.baseUrl = tab.url;state.origin = new URL(tab.url).origin;
+    els.origin.textContent = tab.url;
+    if (changed) {
+      state.files = [];state.apis.clear();state.findings = [];state.apiTests = [];state._seen = new Set();
+      renderAll();
+      if (rejectChanged) throw new Error('目标页面已变化，请重新开始审计');
+    }
+  }
 
   els.start.addEventListener('click', runAudit);
-  els.stop.addEventListener('click', () => { state.stopped = true; setProgress('正在停止...'); });
+  els.stop.addEventListener('click', () => {
+    state.stopped = true;
+    for (const controller of activeRequests) controller.abort();
+    setProgress(state.running ? '正在停止...' : '已停止');
+  });
   els.exportJson.addEventListener('click', exportJson);
   els.exportMd.addEventListener('click', exportMd);
   els.runApiTests.addEventListener('click', () => runSelectedApiTests());
@@ -590,6 +653,7 @@
     if (state.running) return;
     state.running = true;
     try {
+      await syncAuditTarget();
       state.stopped = false;
       state.files = [];
       state.apis = new Map();
@@ -616,7 +680,7 @@
       enqueue({ url: `[page] ${initial.url}`, inline: true, content: initial.html || '', depth: 0, kind: 'document' });
       for (const item of initial.resources || []) enqueue({ ...item, depth: 0 });
       for (const item of initial.scripts || []) enqueue({ ...item, depth: 0, kind: item.inline ? 'inline' : 'script' });
-      for (const link of initial.links || []) enqueue({ url: link, depth: 1, kind: 'document' });
+      // Ordinary navigation links are not source assets: GET may log out or mutate state.
 
       let cursor = 0, active = 0, done = 0;
       await new Promise((resolve) => {
@@ -767,6 +831,7 @@
     const target = new URL(url, state.baseUrl);
     const sameOrigin = target.origin === state.origin;
     const controller = new AbortController();
+    activeRequests.add(controller);
     const timer = setTimeout(() => controller.abort(), SOURCE_FETCH_TIMEOUT_MS);
     try {
       const res = await fetch(target.href, {
@@ -782,6 +847,7 @@
       return await readResponseTextLimited(res, SOURCE_MAX_BYTES);
     } finally {
       clearTimeout(timer);
+      activeRequests.delete(controller);
     }
   }
 
@@ -837,13 +903,15 @@
 
   function discoverFromText(text, baseUrl, depth, maxDepth) {
     const out = [];
-    const add = (raw, kind = 'resource', nextDepth = depth) => {
+    if (depth >= maxDepth) return out;
+    const add = (raw, kind = 'resource', nextDepth = depth + 1) => {
       try {
         const url = new URL(raw, baseUrl);
         if (!/^https?:$/.test(url.protocol)) return;
         if (SKIP_EXT.test(url.href)) return;
         if (url.origin !== state.origin && kind === 'document') return;
         if (kind !== 'document' && !CODE_EXT.test(url.href)) return;
+        if (/\.html?(?:[?#]|$)/i.test(url.href) || isBusinessActionUrl(url.href)) return;
         out.push({ url: url.href, kind, depth: nextDepth });
       } catch { /* ignore */ }
     };
@@ -852,10 +920,7 @@
     while ((m = codeRe.exec(text)) !== null) add(m[1], CODE_EXT.test(m[1]) ? 'resource' : 'document');
     const mapRe = /\/\/[#@]\s*sourceMappingURL=([^\s"'<>]+)/g;
     while ((m = mapRe.exec(text)) !== null) add(m[1], 'sourcemap');
-    if (depth < maxDepth) {
-      const hrefRe = /href\s*=\s*["']([^"']+)["']/gi;
-      while ((m = hrefRe.exec(text)) !== null) add(m[1], 'document', depth + 1);
-    }
+    // Keep code and source-map discovery; do not crawl arbitrary business links.
     return out.slice(0, 180);
   }
 
@@ -864,14 +929,16 @@
       setProgress('扫描仍在运行，请稍后再批量测试 API');
       return;
     }
-    const concurrency = clamp(Number(els.concurrency.value || 4), 1, 8);
-    state.stopped = false;
-    await runApiTests(concurrency, {
-      methods: getSelectedApiMethods(),
-      body: getApiBody(),
-      manual: true
-    });
-    renderAll();
+    state.running = true;
+    try {
+      await syncAuditTarget(true);
+      const concurrency = clamp(Number(els.concurrency.value || 4), 1, 8);
+      state.stopped = false;
+      await runApiTests(concurrency, { methods: getSelectedApiMethods(), body: getApiBody(), manual: true });
+      renderAll();
+      setProgress(state.stopped ? '已停止' : '完成');
+    } catch (error) { setProgress(error.message || String(error), true); }
+    finally { state.running = false; }
   }
 
   function getSelectedApiMethods() {
@@ -893,16 +960,17 @@
 
   async function runApiTests(concurrency, options = {}) {
     const methods = normalizeMethods(options.methods || ['GET', 'POST']);
-    if (!confirmRiskyMethods(methods)) {
-      els.apiStatus.textContent = '已取消';
-      return;
-    }
     const endpoints = Array.from(state.apis.values())
       .map((x) => x.url)
       .filter((url) => {
-        try { return new URL(url).origin === state.origin; } catch { return false; }
+        try { return new URL(url).origin === state.origin && !isBusinessActionUrl(url); } catch { return false; }
       })
       .slice(0, 160);
+    if (!endpoints.length || !methods.length) {
+      els.apiStatus.textContent = '无可批量测试的接口（操作类地址已跳过，可按需手动测试）';
+      return;
+    }
+    if (!confirmRiskyMethods(methods)) { els.apiStatus.textContent = '已取消';return; }
     let cursor = 0, active = 0, done = 0;
     els.apiStatus.textContent = `testing ${endpoints.length} · ${methods.join('/')}`;
     await new Promise((resolve) => {
@@ -948,7 +1016,9 @@
     const methods = normalizeMethods(options.methods || SAFE_METHODS);
     const result = { url, sensitive: isSensitiveApi(url), methods, checks: [], testedAt: Date.now() };
     for (const method of methods) {
+      if (state.stopped) break;
       const auth = await probe(url, method, 'include', options);
+      if (state.stopped) break;
       const anon = await probe(url, method, 'omit', options);
       result.checks.push({ method, auth, anon });
       await safeDelay(40);
@@ -958,6 +1028,7 @@
 
   async function probe(url, method, credentials, options = {}) {
     const controller = new AbortController();
+    activeRequests.add(controller);
     const timer = setTimeout(() => controller.abort(), 6500);
     try {
       const headers = { 'X-AegisScope-Audit': 'batch-api-test' };
@@ -990,6 +1061,7 @@
       return { error: err.name === 'AbortError' ? 'timeout' : err.message };
     } finally {
       clearTimeout(timer);
+      activeRequests.delete(controller);
     }
   }
 
@@ -1008,19 +1080,20 @@
     for (const check of result.checks || []) {
       const anon = check.anon || {};
       const auth = check.auth || {};
-      const anonOk = anon.status >= 200 && anon.status < 300;
-      const authDenied = auth.status === 401 || auth.status === 403;
+      const anonInfo = inspectApiResponse(anon, check.method), authInfo = inspectApiResponse(auth, check.method);
+      const anonOk = anonInfo.kind === 'data';
+      const authDenied = authInfo.kind === 'denied';
       if (sensitive && anonOk) {
         addAuditFinding({
           severity: 'high',
           type: 'unauthorized-api',
-          title: '敏感接口匿名可访问',
+          title: '敏感接口匿名返回数据，待复核',
           target: result.url,
           file: sourceMeta.file,
           evidence: `${check.method} without credentials => HTTP ${anon.status}`,
           codeSnippet: sourceMeta.codeSnippet,
           recommendation: '敏感接口应在服务端校验登录态和权限，匿名请求返回 401/403。',
-          confidence: 'confirmed'
+          confidence: 'likely'
         });
       }
       if (authDenied && anonOk) {
@@ -1033,10 +1106,10 @@
           evidence: `with credentials => ${auth.status}, without credentials => ${anon.status}`,
           codeSnippet: sourceMeta.codeSnippet,
           recommendation: '检查会话识别、网关鉴权和缓存策略是否存在绕过。',
-          confidence: 'confirmed'
+          confidence: 'likely'
         });
       }
-      if (anon.preview && /(?:password|passwd|token|secret|idcard|身份证|手机号|mobile|accessKey|privateKey)/i.test(anon.preview)) {
+      if (anonInfo.sensitive) {
         addAuditFinding({
           severity: 'critical',
           type: 'data-exposure',
@@ -1220,7 +1293,7 @@
       manual: '需人工',
       running: '验证中',
       canceled: '已取消',
-      unknown: '未知'
+      unknown: '待复核'
     })[status] || status;
   }
 
@@ -1378,6 +1451,8 @@
   }
 
   async function runSingleApiTest(url, method = 'GET') {
+    try { await syncAuditTarget(true); } catch (error) { setProgress(error.message, true);return; }
+    state.stopped = false;
     const methods = normalizeMethods([method]);
     if (!methods.length || !confirmRiskyMethods(methods)) return;
     els.apiStatus.textContent = `manual ${methods[0]}`;
@@ -1398,15 +1473,17 @@
     const candidates = buildDocCandidates(finding, state.baseUrl);
     const checks = [];
     for (const url of candidates) {
-      const res = await probe(url, safe, 'include', { body: '{}' });
+      if (state.stopped) break;
+      const res = await probe(url, safe, 'omit', { body: '{}' });
       checks.push({ url, method: safe, result: res });
       const preview = res.preview || '';
-      const docLike = /(?:openapi|swagger|paths|components|graphql|graphiql|knife4j|api-docs)/i.test(preview) ||
-        /(?:json|html|text)/i.test(res.contentType || '');
-      if (res.status >= 200 && res.status < 300 && docLike) {
+      let schema;
+      try { schema = JSON.parse(preview); } catch {}
+      const docLike = schema && (schema.openapi || schema.swagger) && schema.paths && typeof schema.paths === 'object';
+      if (res.status >= 200 && res.status < 300 && docLike && inspectApiResponse(res, safe).kind !== 'denied') {
         return {
           status: 'confirmed',
-          detail: `发现可访问接口文档入口: ${url} HTTP ${res.status}`,
+          detail: `匿名可读取 OpenAPI 文档: ${url}；是否允许公开需结合业务判断`,
           poc: buildVerificationPoc(finding, safe, state.baseUrl).text,
           probe: { checks }
         };
@@ -1470,6 +1547,8 @@
   }
 
   async function verifyFinding(id, method = 'GET') {
+    try { await syncAuditTarget(true); } catch (error) { setProgress(error.message, true);return; }
+    state.stopped = false;
     const finding = state.findings.find((x) => x.id === id);
     if (!finding) return;
     if (state.verifyingIds.has(id)) return;

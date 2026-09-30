@@ -34,6 +34,28 @@ let earlyTarget = null;
 let earlyEnabled = false;
 let navigating = false;
 
+async function syncVueTarget(rejectChanged = false) {
+  let tab;
+  try { tab = await chrome.tabs.get(targetTabId); }
+  catch {
+    currentTab = null;earlyTarget = null;latest = null;earlyEnabled = false;
+    els.origin.textContent = '目标标签页已关闭';
+    els.analyze.disabled = true;els.restore.disabled = true;els.refreshTarget.disabled = true;
+    updateAuthorizedButtons();renderRoutes();
+    throw new Error('目标标签页已关闭，请从目标页面重新打开工具');
+  }
+  const oldOrigin = currentTab?.url ? new URL(currentTab.url).origin : '';
+  const nextOrigin = tab.url ? new URL(tab.url).origin : '';
+  const changed = !!oldOrigin && oldOrigin !== nextOrigin;
+  currentTab = tab;earlyTarget = getEarlyTarget(tab.url || '');
+  els.origin.textContent = tab.url || '目标不可用';
+  if (changed) { latest = null;renderRoutes(); }
+  await refreshEarlyMode();
+  if (!earlyTarget) throw new Error('当前目标不是可操作的 HTTP/HTTPS 页面');
+  if (changed && rejectChanged) throw new Error('目标已切换网站，请重新分析后再操作');
+  return tab;
+}
+
 init().catch((err) => setStatus(`初始化失败: ${err.message}`, true));
 
 async function init() {
@@ -75,6 +97,7 @@ async function refreshEarlyMode() {
 }
 
 async function enableEarlyMode() {
+  try { await syncVueTarget(true); } catch (error) { setStatus(error.message, true);return; }
   if (earlyEnabled) {
     await disableEarlyMode();
     return;
@@ -87,6 +110,7 @@ async function enableEarlyMode() {
     '开启授权增强模式',
     `请仅在已授权测试目标中使用。该操作会增强当前页面，并为 ${earlyTarget.match} 注册页面早期增强脚本。当前页面不会被强制刷新，可避免触发网站初始化登录态校验。`,
     async () => {
+      await syncVueTarget(true);
       await mutateVueRuntime('preflight');
       await registerEarlyContentScript();
       await injectEarlyScriptNow();
@@ -104,6 +128,7 @@ async function disableEarlyMode() {
 
 async function refreshTargetPage() {
   try {
+    await syncVueTarget(true);
     setStatus('正在刷新目标页面...');
     await chrome.tabs.reload(targetTabId);
     await waitForTabSettled(8000);
@@ -159,10 +184,13 @@ function getEarlyTarget(url) {
 }
 
 async function analyze() {
+  try {
+  await syncVueTarget();
   setStatus('分析中...');
   latest = await runInPage(analyzeVueRuntime);
   render(latest);
   setStatus(latest?.ok ? '分析完成' : `分析失败: ${latest?.error || 'unknown'}`, !latest?.ok);
+  } catch (error) { setStatus(`分析失败: ${error.message}`, true); }
 }
 
 async function mutateVueRuntime(action) {
@@ -176,6 +204,7 @@ async function mutateVueRuntime(action) {
 async function restoreVueRuntime() {
   setStatus('正在恢复 Vue 运行时...');
   try {
+    await syncVueTarget(true);
     await unregisterEarlyContentScript();
     const result = await runInPage(mutatePageVueRuntime, ['restore']);
     if (!result?.ok) throw new Error(result?.error || '页面未返回恢复结果');
@@ -189,6 +218,7 @@ async function restoreVueRuntime() {
 }
 
 async function runInPage(func, args = []) {
+  await syncVueTarget(func !== analyzeVueRuntime);
   await chrome.scripting.executeScript({
     target: { tabId: targetTabId }, world: 'MAIN', files: ['scripts/injected/vue-runtime.js']
   });
@@ -317,6 +347,7 @@ async function jumpToRoute(path) {
   navigating = true;
   els.routes.querySelectorAll('.jump').forEach((button) => { button.disabled = true; });
   try {
+    await syncVueTarget(true);
     setStatus(`正在跳转 ${targetPath}...`);
     await runInPage(mutatePageVueRuntime, ['clearGuards']);
     await runInPage(mutatePageVueRuntime, ['patchAuth']);
@@ -369,7 +400,7 @@ function confirmAction(title, text, onOk) {
   els.confirmOk.onclick = async () => {
     cleanup();
     els.confirmDialog.close();
-    await onOk();
+    try { await onOk(); } catch (error) { setStatus(error.message || String(error), true); }
   };
   els.confirmDialog.showModal();
 }
