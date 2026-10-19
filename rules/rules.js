@@ -1092,7 +1092,11 @@ const RULES = [
     recommendation: '接口响应手机号应按权限返回并脱敏；源码中禁止硬编码真实手机号。',
     validate(ctx) {
       const seg = ctx.source.slice(Math.max(0, ctx.offset - 120), Math.min(ctx.source.length, ctx.offset + 120));
-      if (/(?:example|demo|test|mock|placeholder|13800138000|手机号示例)/i.test(seg)) return { drop: true };
+      // Ordinary .test() calls and identifiers such as latestVersion are not sample markers.
+      // Keep ambiguous sample evidence visible instead of discarding a neighbouring real number.
+      if (ctx.captured === '13800138000' || /\b(?:example|demo|mock|placeholder)\b|手机号示例|示例手机号|测试手机号/i.test(seg)) {
+        return { confidence: 'suspected', evidence: '号码或附近文本含示例标记，保留线索供人工核验' };
+      }
       if (!/(?:phone|mobile|tel|手机号|手机|电话|user|customer|member|account|contact)/i.test(seg)) {
         return { confidence: 'suspected' };
       }

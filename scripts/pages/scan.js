@@ -82,6 +82,7 @@ function stopScan(reason = '用户停止扫描') {
   scanSession.cancelled = true;
   issue(scanSession.origin, reason, 'cancelled');
   for (const controller of scanSession.controllers) controller.abort();
+  for (const cancel of scanSession.pageReads?.values() || []) cancel();
   for (const cancel of scanSession.workers.values()) cancel();
   els.progress.textContent = '正在停止…';
 }
@@ -90,7 +91,7 @@ function coverageSnapshot() {
   if (!s) return null;
   return {
     status: s.status, profile: s.profile, startedAt: s.startedAt, finishedAt: s.finishedAt,
-    scope: '当前页面、可访问框架及发现的代码依赖；不证明未知或未加载资源无泄露。',
+    scope: '当前页面、可访问框架、发现的代码依赖及 JSONP 资源；不持续捕获所有接口响应，不证明未知或未加载资源无泄露。',
     discovered: s.queue.length + s.skipped, processed: s.done, skipped: s.skipped,
     analyzed: perFileResults.filter(f => !f.error).length,
     failed: perFileResults.filter(f => f.status === 'failed').length,
@@ -120,7 +121,8 @@ async function runScanOptimized(profile = 'standard') {
   const session = scanSession = {
     id: crypto.randomUUID(), profile, limits: { ...scanProfiles[profile] }, startedAt: new Date().toISOString(),
     status: 'running', origin: '', issues: [], issueKeys: new Set(), controllers: new Set(), workers: new Map(),
-    queue: [], seen: new Set(), done: 0, skipped: 0, bytes: 0, reservedBytes: 0, findings: 0, cancelled: false
+    queue: [], seen: new Set(), done: 0, skipped: 0, bytes: 0, reservedBytes: 0, findings: 0, cancelled: false,
+    pageReads: new Map(), frames: [], observations: []
   };
   setBusy(true); updateAggregate(); aggregate = null;
   els.results.innerHTML = ''; els.origin.textContent = ''; els.riskLevel.textContent = '扫描中…';
@@ -136,15 +138,18 @@ async function runScanOptimized(profile = 'standard') {
     session.queue.push(item);
   };
   const onUpdated = (id, change) => {
-    if (id === targetTabId && change.url && change.url !== session.origin) stopScan('目标页面已跳转，请对新页面重新扫描');
+    if (id === targetTabId && (change.status === 'loading' || (change.url && change.url !== session.origin))) stopScan('目标页面已刷新或跳转，请对新页面重新扫描');
   };
   const onRemoved = id => { if (id === targetTabId) stopScan('目标标签页已关闭'); };
   try {
     const tab = await chrome.tabs.get(targetTabId);
     session.origin = tab.url || ''; els.origin.textContent = session.origin;
     chrome.tabs.onUpdated.addListener(onUpdated); chrome.tabs.onRemoved.addListener(onRemoved);
-    const resp = await chrome.runtime.sendMessage({ type: 'GET_SCRIPTS', tabId: targetTabId });
+    const resp = await chrome.runtime.sendMessage({ type: 'GET_SNIFF_DATA', tabId: targetTabId });
+    session.observations = resp?.resources || [];
     const frames = await getPageCodeResources(session);
+    // Fallback needs identity only; do not retain full page HTML after the scan finishes.
+    session.frames = frames.map(({ url, frameId, documentId, timeOrigin }) => ({ url, frameId, documentId, timeOrigin }));
     const liveTab = await chrome.tabs.get(targetTabId);
     if (liveTab.url !== session.origin) stopScan('初始化期间目标页面已跳转，请重新扫描');
     for (const frame of frames) {
@@ -152,7 +157,7 @@ async function runScanOptimized(profile = 'standard') {
         inline: true, content: frame.html, kind: 'document', truncated: frame.truncated });
       if (frame.truncated) issue(frame.url, '页面 HTML 超过本轮采集上限', 'truncated');
       if (frame.omitted) issue(frame.url, `页面资源列表超出上限，至少遗漏 ${frame.omitted} 项`, 'limit');
-      for (const item of frame.items || []) enqueue(item);
+      for (const item of frame.items || []) enqueue({ ...item, frameId: frame.frameId });
     }
     for (const s of resp?.scripts || []) {
       if (!s.inline) { enqueue({ ...s, kind: 'script' }); continue; }
@@ -234,7 +239,7 @@ async function processScanItem(item, enqueue, session = scanSession) {
   session.reservedBytes += budget;
   try {
     if (item.inline) read = await readResponseTextLimited(new Response(item.content || ''), budget);
-    else read = await fetchCodeForScan(item.url, session, budget);
+    else read = await fetchCodeForScan(item.url, session, budget, item.frameId);
   } finally { session.reservedBytes -= budget; delete item.content; }
   session.bytes += read.bytes;
   const source = read.text, actualUrl = read.responseUrl || item.baseUrl || item.url;
@@ -260,7 +265,8 @@ async function processScanItem(item, enqueue, session = scanSession) {
   if (analyzed.stats.validationErrors?.length) issue(item.url, `规则校验异常：${analyzed.stats.validationErrors.join('、')}`, 'analysis');
   const result = { file: item.url, requestedUrl: item.url, responseUrl: read.responseUrl, kind: item.kind,
     parentMap: item.parentMap, collectedAt: item.collectedAt, size: read.bytes, status: truncated ? 'truncated' : 'analyzed', truncated,
-    encoding: read.encoding, findings: analyzed.findings, stats: analyzed.stats };
+    encoding: read.encoding, readVia: read.readVia || (item.inline ? 'snapshot' : 'extension'),
+    primaryReadError: read.primaryReadError, findings: analyzed.findings, stats: analyzed.stats };
   if (!session.cancelled && item.kind !== 'collected-inline') {
     for (const url of discoverRelatedCodeUrls(source, actualUrl)) enqueue({ url, kind: /\.map(?:[?#]|$)/i.test(url) ? 'sourcemap' : 'chunk' });
     if (item.kind === 'sourcemap' || /\.map(?:[?#]|$)/i.test(item.url)) {
@@ -281,10 +287,31 @@ async function processScanItem(item, enqueue, session = scanSession) {
   return [result];
 }
 
-async function fetchCodeForScan(url, session = scanSession, budget = session.limits.resourceBytes) {
+function isJsonpResource(url) {
+  try {
+    const parsed = new URL(url);
+    return [...parsed.searchParams].some(([key, value]) => /^(?:callback|jsonp|jsonpcallback)$/i.test(key) &&
+      /^[$A-Z_a-z][$\w]*(?:\.[$A-Z_a-z][$\w]*)*$/.test(value));
+  } catch { return false; }
+}
+
+function checkJsonpRead(url, session) {
+  if (!isJsonpResource(url)) return;
+  const parsed = new URL(url);
+  const observations = (session.observations || []).filter(x => x.url === url);
+  if (observations.some(x => x.method && x.method !== 'GET')) throw new Error('JSONP 候选使用非 GET 请求，不自动重放');
+  const operations = /(?:^|[\/_.\-\s])(?:logout|logoff|signout|delete|remove|destroy|update|save|create|insert|submit|reset|revoke|send|pay|purchase|transfer)(?:$|[\/_.\-\s])/i;
+  if (operations.test(decodeURIComponent(parsed.pathname)) || [...parsed.searchParams].some(([key, value]) =>
+    /^(?:action|operation|op|method|cmd|do)$/i.test(key) && operations.test(value))) {
+    throw new Error('JSONP 候选包含业务操作名称，已跳过自动重放');
+  }
+}
+
+async function fetchCodeForScan(url, session = scanSession, budget = session.limits.resourceBytes, frameId) {
   const target = new URL(url, location.href);
   if (!['http:', 'https:', 'file:', 'data:'].includes(target.protocol)) throw new Error('此资源协议无法在扫描页读取');
   if (target.username || target.password) throw new Error('不读取 URL 中嵌入认证信息的资源');
+  checkJsonpRead(target.href, session);
   const controller = new AbortController(); session.controllers.add(controller);
   const timer = setTimeout(() => controller.abort(), SCAN_FETCH_TIMEOUT_MS);
   let sameOrigin = false;
@@ -297,15 +324,73 @@ async function fetchCodeForScan(url, session = scanSession, budget = session.lim
       await res.body?.cancel().catch(() => {}); throw new Error(`非文本资源（${type}），未执行文本规则扫描`);
     }
     const read = await readResponseTextLimited(res, budget);
-    if (/\.(?:[cm]?js|map)(?:[?#]|$)/i.test(target.href) && /^\s*(?:<!doctype\s+html|<html\b)/i.test(read.text)) throw new Error('请求代码资源却返回 HTML 页面，可能为登录页或错误页');
+    if ((/\.(?:[cm]?js|map)(?:[?#]|$)/i.test(target.href) || isJsonpResource(target.href)) && /^\s*(?:<!doctype\s+html|<html\b)/i.test(read.text)) throw new Error('请求代码资源却返回 HTML 页面，可能为登录页或错误页');
     return { ...read, responseUrl: res.url, sourceMap: res.headers.get('sourcemap') || res.headers.get('x-sourcemap') || '' };
   } catch (error) {
-    if (error.name === 'AbortError') throw new Error(session.cancelled ? '扫描已停止' : '资源读取超时');
-    throw error;
+    if (session.cancelled) throw new Error('扫描已停止');
+    clearTimeout(timer);
+    const primaryError = error.name === 'AbortError' ? '资源读取超时' : error.message;
+    const frame = (session.frames || []).find(f => (frameId == null || f.frameId === frameId) &&
+      /^https?:/.test(f.url) && new URL(f.url).origin === target.origin);
+    if (!frame) throw new Error(primaryError);
+    try {
+      const read = await fetchCodeFromPage(target.href, frame, budget, session);
+      if ((/\.(?:[cm]?js|map)(?:[?#]|$)/i.test(target.href) || isJsonpResource(target.href)) && /^\s*(?:<!doctype\s+html|<html\b)/i.test(read.text)) throw new Error('页面内重试返回 HTML 登录页或错误页');
+      return { ...read, readVia: 'page', primaryReadError: primaryError };
+    } catch (fallbackError) {
+      throw new Error(`${primaryError}；页面内重试：${fallbackError.message}`);
+    }
   } finally { clearTimeout(timer); session.controllers.delete(controller); }
 }
 
-async function readResponseTextLimited(response, maxBytes) {
+async function fetchCodeFromPage(url, frame, budget, session) {
+  const id = crypto.randomUUID();
+  const target = frame.documentId ? { tabId: targetTabId, documentIds: [frame.documentId] } : { tabId: targetTabId, frameIds: [frame.frameId] };
+  const cancel = () => chrome.scripting.executeScript({ target, func: key => {
+    const reads = globalThis.__aegisLeakPageReads;
+    reads?.get(key)?.abort(); reads?.delete(key);
+  }, args: [id] }).catch(() => {});
+  session.pageReads.set(id, cancel);
+  try {
+    if (session.cancelled) throw new Error('扫描已停止');
+    await chrome.scripting.executeScript({ target, func: key => {
+      const reads = globalThis.__aegisLeakPageReads ||= new Map();
+      reads.set(key, new AbortController());
+    }, args: [id] });
+    if (session.cancelled) throw new Error('扫描已停止');
+    const results = await chrome.scripting.executeScript({ target, func: readResponseTextLimited,
+      args: [null, budget, { id, url, pageUrl: frame.url, timeOrigin: frame.timeOrigin, timeout: SCAN_FETCH_TIMEOUT_MS }] });
+    const result = results?.[0]?.result;
+    if (session.cancelled) throw new Error('扫描已停止');
+    if (!result || result.error) throw new Error(result?.error || '页面未返回读取结果');
+    return result;
+  } finally { session.pageReads.delete(id); await cancel(); }
+}
+
+// Self-contained: also serialized into the selected document's isolated world for fallback reads.
+async function readResponseTextLimited(response, maxBytes, pageRequest = null) {
+  if (pageRequest) {
+    const controller = globalThis.__aegisLeakPageReads?.get(pageRequest.id);
+    let timer;
+    try {
+      if (!controller || controller.signal.aborted) throw new Error('读取已取消');
+      const verify = () => {
+        const url = new URL(pageRequest.url);
+        if (location.href !== pageRequest.pageUrl || performance.timeOrigin !== pageRequest.timeOrigin) throw new Error('目标文档已变化，请重新扫描');
+        if (!/^https?:$/.test(url.protocol) || url.origin !== location.origin || url.username || url.password) throw new Error('仅允许在资源同源页面内重试');
+      };
+      verify();
+      timer = setTimeout(() => controller.abort(), pageRequest.timeout);
+      const res = await fetch(pageRequest.url, { credentials: 'include', cache: 'no-store', redirect: 'error', signal: controller.signal });
+      if (!res.ok) { await res.body?.cancel(); throw new Error(`HTTP ${res.status}`); }
+      const type = res.headers.get('content-type') || '';
+      if (/^(?:image|audio|video|font)\/|application\/(?:wasm|zip|pdf)/i.test(type)) { await res.body?.cancel(); throw new Error(`非文本资源（${type}）`); }
+      const read = await readResponseTextLimited(res, maxBytes);
+      verify();
+      return { ...read, responseUrl: res.url, sourceMap: res.headers.get('sourcemap') || res.headers.get('x-sourcemap') || '' };
+    } catch (error) { return { error: error.name === 'AbortError' ? '读取已取消或超时' : error.message }; }
+    finally { clearTimeout(timer); globalThis.__aegisLeakPageReads?.delete(pageRequest.id); }
+  }
   const reader = response.body.getReader();
   let bytes = 0, truncated = false;
   const parts = [];
@@ -346,7 +431,7 @@ async function getPageCodeResources(session) {
     issue(session.origin, `部分框架无法读取：${e.message}`, 'frame');
     frames = await chrome.scripting.executeScript({ target: { tabId: targetTabId }, func: collectPageCodeResources, args: [options] });
   }
-  const results = frames.filter(x => x.result).map(x => ({ ...x.result, frameId: x.frameId }));
+  const results = frames.filter(x => x.result).map(x => ({ ...x.result, frameId: x.frameId, documentId: x.documentId }));
   const loaded = new Set(results.map(x => x.url));
   for (const frame of results) for (const url of frame.frameUrls || []) {
     if (!loaded.has(url)) issue(url, '框架未能完成实时 DOM 采集，仅尝试已发现的资源', 'frame');
@@ -386,9 +471,10 @@ function collectPageCodeResources(options = {}) {
     if (!/^https?:|^file:|^blob:|^data:/.test(url.href)) return;
     const ext = extOf(url.href);
     if (excludedExt.has(ext)) return;
-    if (!codeExt.has(ext) && kind !== 'script' && kind !== 'document' && kind !== 'manifest') return;
+    const jsonp = [...url.searchParams].some(([key, value]) => /^(?:callback|jsonp|jsonpcallback)$/i.test(key) && /^[$A-Z_a-z][$\w]*(?:\.[$A-Z_a-z][$\w]*)*$/.test(value));
+    if (!codeExt.has(ext) && kind !== 'script' && kind !== 'document' && kind !== 'manifest' && !jsonp) return;
     if (items.size >= maxItems && !items.has(url.href)) { omitted++; return; }
-    items.set(url.href, { url: url.href, kind });
+    items.set(url.href, { url: url.href, kind: jsonp ? 'jsonp' : kind });
   };
 
   for (const el of document.querySelectorAll('script[src]')) {
@@ -411,7 +497,7 @@ function collectPageCodeResources(options = {}) {
 
   const html = '<!DOCTYPE html>\n' + document.documentElement.outerHTML;
   const maxChars = options.maxChars || 8 * 1024 * 1024;
-  return { url: location.href, baseUrl: document.baseURI, html: html.slice(0, maxChars), truncated: html.length > maxChars, omitted,
+  return { url: location.href, timeOrigin: performance.timeOrigin, baseUrl: document.baseURI, html: html.slice(0, maxChars), truncated: html.length > maxChars, omitted,
     frameUrls: Array.from(document.querySelectorAll('iframe[src],frame[src]'), el => el.src), items: Array.from(items.values()) };
 }
 
@@ -964,7 +1050,7 @@ async function exportJson() {
     files: getReportFiles(() => true, true).map((f) => ({
       file: f.file, size: f.size, error: f.error, status: f.status, truncated: f.truncated,
       requestedUrl: f.requestedUrl, responseUrl: f.responseUrl, parentMap: f.parentMap, encoding: f.encoding,
-      kind: f.kind, collectedAt: f.collectedAt,
+      kind: f.kind, collectedAt: f.collectedAt, readVia: f.readVia, primaryReadError: f.primaryReadError,
       stats: f.stats,
       findings: f.findings.map(({ context, ...rest }) => rest)
     }))
@@ -1023,6 +1109,7 @@ async function exportMd() {
     if (f.kind === 'collected-inline') lines.push('- 来源: 历史采集快照，当前 DOM 中未找到对应完整脚本；不追溯推测其依赖地址。');
     if (f.truncated) lines.push('- 内容被截断，检测范围不完整');
     if (f.responseUrl && f.responseUrl !== f.requestedUrl) lines.push(`- 实际响应: ${f.responseUrl}`);
+    if (f.readVia === 'page') lines.push(`- 读取方式: 同源页面内重试；首次读取失败: ${f.primaryReadError || '未知'}`);
     for (const fi of list) {
       lines.push(`### [${sevLabel(fi.severity)}/${confLabel(fi.confidence)}] ${fi.ruleName}  (L${fi.line})`);
       if (fi.description) lines.push(`- 描述: ${fi.description}`);

@@ -12,7 +12,7 @@
     <div class="brand">
       <div class="mark" aria-hidden="true"><img src="../icons/icon48.png" alt=""></div>
       <div>
-        <h1>玄镜 AegisScope Vue 控制台 <span class="version">V2.3.2</span></h1>
+        <h1>玄镜 AegisScope Vue 控制台 <span class="version">V2.3.3</span></h1>
         <span id="origin" class="origin"></span>
       </div>
     </div>
@@ -37,6 +37,9 @@
       <div class="label">路由器</div>
       <div class="value" id="routerStatus">-</div>
       <div class="sub" id="routerMeta">-</div>
+      <label id="routerPicker" class="router-picker" hidden>选择路由实例
+        <select id="routerSelect" aria-label="选择路由实例"></select>
+      </label>
     </div>
     <div class="card">
       <div class="label">路由数量</div>
@@ -56,7 +59,7 @@
       <div class="runtime-desc">在已授权测试范围内，一键增强当前页面 Vue Router 跳转能力；如不再需要，可再次点击关闭。</div>
       <div class="usage-tip">
         <span>开启后默认不刷新页面</span>
-        <span>先直接重试路由跳转，失败后再点“刷新页面”。刷新后仍提示失败时，多数属于后端登录态或接口权限问题。</span>
+        <span>若页面刚跳转就返回登录页，可开启增强模式后重试。增强仅在本次跳转确认期间处理页面主动跳转，完成后恢复正常导航；接口登录与权限仍由网站校验。</span>
       </div>
     </div>
     <div class="runtime-actions">
@@ -77,7 +80,7 @@
     <div class="panel">
       <div class="panel-head">
         <h2>运行时详情</h2>
-        <span id="status" class="status">就绪</span>
+        <span id="status" class="status" role="status" aria-live="polite">就绪</span>
       </div>
       <pre id="details"></pre>
     </div>

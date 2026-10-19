@@ -1,11 +1,15 @@
 // Shared discovery for Vue analysis, navigation and restoration.
 (() => {
   const key = '__AEGISSCOPE_VUE_RUNTIME__';
-  if (window[key]) return;
+  if (window[key]?.revision === 'vue-review-1') return;
+  window[key]?.navigation?.cancel?.();
+  const ids = new WeakMap();
+  let nextId = 0;
+  const read = (fn, fallback = null) => { try { return fn() ?? fallback; } catch { return fallback; } };
 
   function isRouter(router) {
-    return !!router && typeof router.push === 'function' &&
-      (typeof router.getRoutes === 'function' || Array.isArray(router.options?.routes) || router.matcher);
+    return read(() => !!router && typeof router.push === 'function' &&
+      (typeof router.getRoutes === 'function' || Array.isArray(router.options?.routes) || router.matcher), false);
   }
 
   function findRoots() {
@@ -15,7 +19,7 @@
       const node = queue[i];
       if (!node || seen.has(node)) continue;
       seen.add(node);
-      if (node.__vue_app__ || node.__vue__ || node.__vueParentComponent || node._vnode?.component) roots.push(node);
+      if (read(() => node.__vue_app__) || read(() => node.__vue__) || read(() => node.__vueParentComponent) || read(() => node._vnode?.component)) roots.push(node);
       if (node.children) {
         for (const child of node.children) {
           if (queue.length >= 10000) break;
@@ -27,9 +31,15 @@
     return roots;
   }
 
-  function findRouter(roots = findRoots()) {
+  function findRouters(roots = findRoots()) {
     const candidates = [];
-    const add = (router, source) => { if (isRouter(router)) candidates.push({ router, source }); };
+    const seen = new Set();
+    const add = (router, source) => {
+      if (!isRouter(router) || seen.has(router)) return;
+      seen.add(router);
+      if (!ids.has(router)) ids.set(router, `${performance.timeOrigin}:router-${++nextId}`);
+      candidates.push({ router, source, id: ids.get(router) });
+    };
     function fromContext(ctx, source) {
       if (!ctx) return;
       add(ctx.config?.globalProperties?.$router, source);
@@ -38,7 +48,8 @@
       }
     }
     for (const root of roots) {
-      const app = root.__vue_app__, vue = root.__vue__;
+      try {
+      const app = read(() => root.__vue_app__), vue = read(() => root.__vue__);
       fromContext(app, 'vue3 app');
       fromContext(app?._context, 'vue3 context');
       let component = root.__vueParentComponent || root._vnode?.component || app?._instance;
@@ -50,9 +61,17 @@
       add(vue?.$router, 'vue2 instance');
       add(vue?.$root?.$router, 'vue2 root');
       add(vue?._routerRoot?._router, 'vue2 routerRoot');
+      add(vue?.$root?.$options?.router, 'vue2 options');
+      add(vue?._router, 'vue2 router');
+      } catch { /* A broken app must not hide other apps on this page. */ }
     }
-    for (const router of [window.$router, window.router, window.__router, window.app?.config?.globalProperties?.$router]) add(router, 'global');
-    return candidates[0] || null;
+    for (const get of [() => window.$router, () => window.router, () => window.__router, () => window.app?.config?.globalProperties?.$router]) add(read(get), 'global');
+    return candidates;
+  }
+
+  function findRouter(roots, id = '') {
+    const hits = findRouters(roots);
+    return (id ? hits.find((hit) => hit.id === id) : hits[0]) || null;
   }
 
   function current(router) {
@@ -82,7 +101,15 @@
     const href = typeof result === 'string' ? result : result?.href;
     if (href) {
       const url = new URL(href, location.href);
-      return url.origin === location.origin && /^https?:$/.test(url.protocol) ? url.href : '';
+      if (url.origin !== location.origin || !/^https?:$/.test(url.protocol)) return '';
+      // Hash navigation stays in the current document. Router 3's resolved href
+      // can omit index.html or the document's query string; retain both.
+      if (mode(router) === 'hash' && url.hash) {
+        const currentUrl = new URL(location.href);
+        currentUrl.hash = url.hash;
+        return currentUrl.href;
+      }
+      return url.href;
     }
     if (mode(router) === 'hash') {
       const url = new URL(location.href);
@@ -93,5 +120,5 @@
     return new URL(prefix + path, location.origin).href;
   }
 
-  window[key] = { findRoots, findRouter, current, mode, base, fullPath, routeUrl };
+  window[key] = { version: '2.3.3', revision: 'vue-review-1', findRoots, findRouters, findRouter, current, mode, base, fullPath, routeUrl };
 })();

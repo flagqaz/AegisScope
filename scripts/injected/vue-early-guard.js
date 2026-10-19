@@ -2,9 +2,11 @@
 // resource-profile:flagqaz/AegisScope:4d6b318248438a85:vue-early-guard
 (() => {
   const KEY = '__AEGISSCOPE_VUE_EARLY_GUARD__';
-  if (window[KEY]?.enabled) return;
+  if (window[KEY]?.enabled && window[KEY].revision === 'vue-review-1') { window[KEY].scan?.(); return; }
+  window[KEY]?.restore?.();
 
-  const state = window[KEY] = window[KEY] || {
+  const state = window[KEY] = {
+    revision: 'vue-review-1',
     enabled: true,
     installedAt: Date.now(),
     routers: [],
@@ -52,16 +54,20 @@
     let changed = 0;
 
     for (const prop of guardMethods) {
-      if (typeof router[prop] !== 'function' || router[prop].__aegisScopeEarlyPatched) continue;
+      if (typeof router[prop] !== 'function' || router[prop].__aegisScopeEarlyPatched || router[prop].__aegisScopePatched) continue;
       const original = runtime?.routerMethods?.find((entry) => entry.target === router && entry.prop === prop);
-      backup.methods.push({ target: router, prop, value: original ? original.value : router[prop] });
-      const patched = function aegisScopeEarlyGuardBypass() {
+      const entry = { target: router, prop, value: original ? original.value : router[prop], descriptor: Object.getOwnPropertyDescriptor(router, prop), registrations: [] };
+      const patched = function aegisScopeEarlyGuardBypass(...args) {
         state.hits++;
-        return function aegisScopeEarlyGuardUnregister() {};
+        const pending = { receiver: this, args, active: true, remove: null };
+        entry.registrations.push(pending);
+        return () => { pending.active = false; pending.remove?.(); const i = entry.registrations.indexOf(pending); if (i >= 0) entry.registrations.splice(i, 1); };
       };
+      entry.wrapper = patched;
       Object.defineProperty(patched, '__aegisScopeEarlyPatched', { value: true });
       try {
         router[prop] = patched;
+        backup.methods.push(entry);
         changed++;
       } catch {}
     }
@@ -129,10 +135,18 @@
   }
 
   function scanRoots() {
-    if (!state.enabled) return;
+    if (!state.enabled || window[KEY] !== state) return;
+    state.scans = (state.scans || 0) + 1;
     let changed = 0;
+    const shared = window.__AEGISSCOPE_VUE_RUNTIME__;
+    if (shared?.findRouters) {
+      for (const {router, source} of shared.findRouters()) changed += rememberRouter(router, source);
+      if (changed) { state.notes.push({ at: Date.now(), changed }); state.notes = state.notes.slice(-5); }
+      return;
+    }
     const roots = findVueRoots();
     for (const root of roots) {
+      try {
       const app = root.__vue_app__;
       const vue = root.__vue__;
       const candidates = [];
@@ -149,18 +163,21 @@
         candidates.push(['vue2 instance', vue.$router]);
         candidates.push(['vue2 root', vue.$root?.$router]);
         candidates.push(['vue2 routerRoot', vue._routerRoot?._router]);
+        candidates.push(['vue2 options', vue.$root?.$options?.router]);
+        candidates.push(['vue2 router', vue._router]);
       }
       for (const [source, router] of candidates) changed += rememberRouter(router, source);
+      } catch {}
     }
-    for (const [source, router] of [
-      ['global $router', window.$router],
-      ['global router', window.router],
-      ['global __router', window.__router],
-      ['global app', window.app?.config?.globalProperties?.$router]
+    for (const [source, get] of [
+      ['global $router', () => window.$router],
+      ['global router', () => window.router],
+      ['global __router', () => window.__router],
+      ['global app', () => window.app?.config?.globalProperties?.$router]
     ]) {
-      changed += rememberRouter(router, source);
+      try { changed += rememberRouter(get(), source); } catch {}
     }
-    if (changed) state.notes.push({ at: Date.now(), changed });
+    if (changed) { state.notes.push({ at: Date.now(), changed }); state.notes = state.notes.slice(-5); }
   }
 
   function findVueRoots() {
@@ -177,10 +194,11 @@
       scanned++;
       if (!node || seenNodes.has(node)) continue;
       seenNodes.add(node);
-      if (node.__vue_app__ || node.__vue__ || node._vnode) out.push(node);
+      try { if (node.__vue_app__ || node.__vue__ || node._vnode) out.push(node); } catch {}
       if (node.children) {
-        for (const child of node.children) queue.push(child);
+        for (const child of node.children) { if (queue.length >= 5200) break; queue.push(child); }
       }
+      if (node.shadowRoot) queue.push(node.shadowRoot);
     }
     return out;
   }
@@ -195,8 +213,9 @@
         descriptor: Object.getOwnPropertyDescriptor(window, 'VueRouter') || null
       };
       state.globalVueRouterCurrent = current;
-      Object.defineProperty(window, 'VueRouter', {
+      state.globalWrapper = {
         configurable: true,
+        enumerable: state.globalVueRouterBackup.descriptor?.enumerable ?? true,
         get() {
           return stored;
         },
@@ -205,7 +224,8 @@
           state.globalVueRouterCurrent = value;
           patchVueRouterObject(value);
         }
-      });
+      };
+      Object.defineProperty(window, 'VueRouter', state.globalWrapper);
     } catch {}
   }
 
@@ -215,37 +235,45 @@
       if (!proto) return;
       for (const prop of guardMethods) {
         if (typeof proto[prop] !== 'function' || proto[prop].__aegisScopeEarlyPatched) continue;
-        if (!state.prototypeBackups.some((entry) => entry.target === proto && entry.prop === prop)) {
-          state.prototypeBackups.push({
+        const entry = {
             target: proto,
             prop,
             descriptor: Object.getOwnPropertyDescriptor(proto, prop) || null,
-            value: proto[prop]
-          });
-        }
-        const patched = function aegisScopeEarlyPrototypeGuard() {
-          state.hits++;
-          return function aegisScopeEarlyPrototypeUnregister() {};
+            value: proto[prop], registrations: []
         };
+        const patched = function aegisScopeEarlyPrototypeGuard(...args) {
+          state.hits++;
+          const pending = { receiver: this, args, active: true, remove: null };
+          entry.registrations.push(pending);
+          return () => { pending.active = false; pending.remove?.(); const i = entry.registrations.indexOf(pending); if (i >= 0) entry.registrations.splice(i, 1); };
+        };
+        entry.wrapper = patched;
         Object.defineProperty(patched, '__aegisScopeEarlyPatched', { value: true });
         proto[prop] = patched;
+        state.prototypeBackups.push(entry);
       }
     } catch {}
   }
 
-  function restore() {
+  function restore(options = {}) {
     state.enabled = false;
-    if (state.timer) clearInterval(state.timer);
-    state.timer = 0;
-    try { state.observer?.disconnect(); } catch {}
-    state.observer = null;
+    stopWatching();
+    window.removeEventListener('pagehide', stopWatching);
+    window.removeEventListener('pageshow', startWatching);
     let restored = 0;
+    const registrations = [];
     const routerCount = state.routers?.length || 0;
     for (const item of state.routers || []) {
       const backup = item.router?.__AEGISSCOPE_EARLY_BACKUP__;
       if (!backup) continue;
       for (const entry of backup.methods || []) {
-        try { entry.target[entry.prop] = entry.value; restored++; } catch {}
+        registrations.push(entry);
+        try {
+          if (entry.target[entry.prop] !== entry.wrapper) continue;
+          if (entry.descriptor) Object.defineProperty(entry.target, entry.prop, entry.descriptor);
+          else delete entry.target[entry.prop];
+          restored++;
+        } catch {}
       }
       for (const entry of backup.collections || []) {
         try {
@@ -272,14 +300,16 @@
       } catch {}
     }
     for (const entry of state.prototypeBackups || []) {
+      registrations.push(entry);
       try {
+        if (entry.target[entry.prop] !== entry.wrapper) continue;
         if (entry.descriptor) Object.defineProperty(entry.target, entry.prop, entry.descriptor);
-        else entry.target[entry.prop] = entry.value;
+        else delete entry.target[entry.prop];
         restored++;
       } catch {}
     }
     const globalBackup = state.globalVueRouterBackup;
-    if (globalBackup) {
+    if (globalBackup && Object.getOwnPropertyDescriptor(window, 'VueRouter')?.get === state.globalWrapper?.get) {
       try {
         const current = state.globalVueRouterCurrent;
         if (globalBackup.hadOwn && globalBackup.descriptor) {
@@ -297,6 +327,14 @@
     state.prototypeBackups = [];
     state.globalVueRouterBackup = null;
     state.globalVueRouterCurrent = undefined;
+    const replay = () => {
+      for (const entry of registrations.splice(0)) for (const pending of entry.registrations?.splice(0) || []) {
+        if (!pending.active) continue;
+        try { pending.remove = Reflect.apply(entry.value, pending.receiver, pending.args); } catch {}
+      }
+    };
+    if (options.deferRegistrations) state.replayRegistrations = replay;
+    else replay();
     return { restored, routers: routerCount };
   }
 
@@ -315,17 +353,37 @@
   }
 
   state.restore = restore;
+  state.scan = scanRoots;
   hookVueRouterGlobal();
-  scanRoots();
-  state.timer = setInterval(scanRoots, 180);
-  setTimeout(() => {
-    if (state.enabled && state.timer) {
-      clearInterval(state.timer);
-      state.timer = setInterval(scanRoots, 1200);
-    }
-  }, 10000);
-  try {
-    state.observer = new MutationObserver(scanRoots);
-    state.observer.observe(document.documentElement || document, { childList: true, subtree: true });
-  } catch {}
+  function stopWatching() {
+    clearTimeout(state.timer); clearTimeout(state.pendingScan);
+    state.timer = 0; state.pendingScan = 0;
+    try { state.observer?.disconnect(); } catch {}
+    state.observer = null;
+  }
+  function startWatching() {
+    if (!state.enabled || window[KEY] !== state) return;
+    stopWatching();
+    scanRoots();
+    const until = Date.now() + 30000;
+    let delay = 180;
+    const poll = () => {
+      state.timer = 0;
+      if (!state.enabled || window[KEY] !== state) return;
+      scanRoots();
+      delay = Math.min(delay * 2, 2000);
+      if (Date.now() < until) state.timer = setTimeout(poll, delay);
+    };
+    state.timer = setTimeout(poll, delay);
+    try {
+      state.observer = new MutationObserver(() => {
+        if (state.pendingScan || !state.enabled) return;
+        state.pendingScan = setTimeout(() => { state.pendingScan = 0; scanRoots(); }, 250);
+      });
+      state.observer.observe(document.documentElement || document, { childList: true, subtree: true });
+    } catch {}
+  }
+  window.addEventListener('pagehide', stopWatching);
+  window.addEventListener('pageshow', startWatching);
+  startWatching();
 })();

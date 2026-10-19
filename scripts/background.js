@@ -196,6 +196,7 @@ function recordScript(tabId, url, meta = {}) {
   existing.statusCode = meta.statusCode ?? existing.statusCode;
   existing.fromCache = meta.fromCache ?? existing.fromCache;
   existing.type = meta.type || existing.type || 'script';
+  existing.frameId = meta.frameId ?? existing.frameId;
   existing.lastSeen = Date.now();
   bucket.set(url, existing);
   trimTabScriptBucket(bucket);
@@ -229,13 +230,17 @@ chrome.webRequest.onCompleted.addListener(
     recordObservation(details);
     scheduleTabRecords();
     if (details.tabId < 0) return;
-    const isScript = details.type === 'script' || /\.m?js(\?|$)/i.test(details.url);
+    let isJsonp = false;
+    try { isJsonp = details.method === 'GET' && [...new URL(details.url).searchParams].some(([key, value]) =>
+      /^(?:callback|jsonp|jsonpcallback)$/i.test(key) && /^[$A-Z_a-z][$\w]*(?:\.[$A-Z_a-z][$\w]*)*$/.test(value)); } catch {}
+    const isScript = details.type === 'script' || /\.m?js(\?|$)/i.test(details.url) || isJsonp;
     if (!isScript) return;
     recordScript(details.tabId, details.url, {
       method: details.method,
       statusCode: details.statusCode,
       fromCache: details.fromCache,
-      type: details.type
+      type: details.type,
+      frameId: details.frameId
     });
     }).catch(() => {});
   },
