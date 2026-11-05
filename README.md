@@ -1,7 +1,7 @@
 <div align="center">
   <img src="icons/icon128.png" alt="玄镜 AegisScope" width="88" height="88">
 
-  <h2>玄镜 AegisScope V2.3.3</h2>
+  <h2>玄镜 AegisScope V2.3.4</h2>
 
   <p>
     前端代码资产采集、网站嗅探、备案查询、指纹扫描、泄露扫描、漏洞审计、浏览器辅助与 Vue Router 分析工具。
