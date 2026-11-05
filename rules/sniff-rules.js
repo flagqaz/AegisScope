@@ -74,7 +74,7 @@ window.AEGISSCOPE_SNIFF_RULES = [
     category: '内容管理系统（CMS）',
     website: 'https://www.phome.net',
     matchers: [
-      { source: 'html', regex: 'EmpireCMS|e/data/js|/skin/default/|/e/public/', score: 86 },
+      { source: 'html', regex: 'EmpireCMS|/e/data/js/|/e/public/', score: 86 },
       { source: 'meta', key: 'generator', regex: 'EmpireCMS', score: 98 }
     ]
   },
@@ -84,7 +84,7 @@ window.AEGISSCOPE_SNIFF_RULES = [
     category: '内容管理系统（CMS）',
     website: 'https://www.phpcms.cn',
     matchers: [
-      { source: 'html', regex: 'PHPCMS|/statics/js/|/statics/css/|phpcms_path', score: 86 },
+      { source: 'html', regex: 'PHPCMS|phpcms_path', score: 86 },
       { source: 'meta', key: 'generator', regex: 'PHPCMS', score: 98 }
     ]
   },
@@ -330,10 +330,10 @@ window.AEGISSCOPE_SNIFF_RULES = [
       { source: 'selector', selector: '#__nuxt, #__layout, [id^="__nuxt"]', equals: '#__nuxt, #__layout, [id^="__nuxt"]', score: 86 },
       { source: 'selector', selector: 'router-view, router-link', equals: 'router-view, router-link', score: 86 },
       { source: 'html', regex: 'data-v-app|data-v-[a-f0-9]{6,}|data-server-rendered|data-vue-meta|data-n-head|id=["\\\']__(?:nuxt|layout)["\\\']|<router-view|<router-link|vue-router|__VUE_SSR_CONTEXT__|__NUXT__', score: 88 },
-      { source: 'scripts', regex: '(?=.*\\bopenBlock\\s*\\()(?=.*\\bcreateElement(?:VNode|Block)\\s*\\()', score: 92 },
+      { source: 'scripts', regex: '(?:^|[\\r\\n\\u2028\\u2029])(?=.*\\bopenBlock\\s*\\()(?=.*\\bcreateElement(?:VNode|Block)\\s*\\()', score: 92 },
       { source: 'scripts', regex: '\\bnew\\s+Vue\\s*\\(|\\bVue\\.(?:component|use|mixin|directive|filter)\\s*\\(', score: 92 },
       { source: 'scripts', regex: '__VUE_HMR_RUNTIME__|__VUE_HOT_MAP__|__VUE_SSR_CONTEXT__|__NUXT__', score: 88 },
-      { source: 'scripts', regex: '(?=.*\\bcreateApp\\s*\\()(?=.*\\bmount\\s*\\()', score: 86 },
+      { source: 'scripts', regex: '(?:^|[\\r\\n\\u2028\\u2029])(?=.*\\bcreateApp\\s*\\()(?=.*\\bmount\\s*\\()', score: 86 },
       { source: 'scripts', regex: '\\b(?:createApp|createSSRApp|defineComponent|resolveComponent|renderSlot|withCtx)\\s*\\(', score: 84 },
       { source: 'scripts', regex: '\\b(?:createRouter|createWebHistory|createWebHashHistory|createPinia|defineStore)\\s*\\(', score: 82 },
       { source: 'scriptSrc', regex: 'vue(?:\\.runtime)?(?:\\.global)?(?:\\.esm(?:-browser|-bundler)?)?(?:\\.prod)?(?:\\.min)?\\.js|unpkg\\.com/vue@([0-9][\\w.-]+)|cdn\\.jsdelivr\\.net/npm/vue@([0-9][\\w.-]+)|vue-router|vuex|pinia|@vue[\\/]|/_nuxt/|/\\.vitepress/', score: 88, versionRegex: 'vue@([0-9][\\w.-]+)' },
@@ -349,7 +349,8 @@ window.AEGISSCOPE_SNIFF_RULES = [
       { source: 'globals', key: 'React.version', regex: '([0-9][\\w.-]+)', score: 98, version: 1 },
       { source: 'globals', key: 'React', regex: '.+', score: 92 },
       { source: 'globals', key: 'ReactDOM', regex: '.+', score: 90 },
-      { source: 'html', regex: 'data-reactroot|__REACT_DEVTOOLS_GLOBAL_HOOK__|react-dom', score: 76 },
+      { source: 'reactRuntime', regex: '^mounted-(?:root|fiber)$', score: 98 },
+      { source: 'html', regex: 'data-reactroot|react-dom', score: 76 },
       { source: 'scriptSrc', regex: 'react(?:\\.production)?(?:\\.min)?\\.js|react-dom(?:\\.production)?(?:\\.min)?\\.js', score: 82 }
     ]
   },

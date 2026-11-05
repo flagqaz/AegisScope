@@ -1,5 +1,5 @@
 // Isolated static analysis. Terminating this worker cancels even a running regexp.
-importScripts('../../rules/rules.js', 'analyzer.js');
+importScripts('../../rules/rules.js', 'acorn.js', 'crypto-flow.js', 'analyzer.js');
 self.onmessage = ({ data }) => {
   try {
     const result = self.JS_EXTRACTOR_ANALYZER.analyzeSource(data.source, data.meta);

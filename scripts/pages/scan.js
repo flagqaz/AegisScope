@@ -263,6 +263,7 @@ async function processScanItem(item, enqueue, session = scanSession) {
   session.findings += analyzed.findings.length;
   if (analyzed.stats.ruleLimits?.length) issue(item.url, `规则命中数量达到上限：${analyzed.stats.ruleLimits.join('、')}`, 'limit');
   if (analyzed.stats.validationErrors?.length) issue(item.url, `规则校验异常：${analyzed.stats.validationErrors.join('、')}`, 'analysis');
+  if (analyzed.stats.cryptoFlow?.reason) issue(item.url, analyzed.stats.cryptoFlow.reason, 'analysis');
   const result = { file: item.url, requestedUrl: item.url, responseUrl: read.responseUrl, kind: item.kind,
     parentMap: item.parentMap, collectedAt: item.collectedAt, size: read.bytes, status: truncated ? 'truncated' : 'analyzed', truncated,
     encoding: read.encoding, readVia: read.readVia || (item.inline ? 'snapshot' : 'extension'),

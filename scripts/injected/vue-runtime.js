@@ -120,5 +120,5 @@
     return new URL(prefix + path, location.origin).href;
   }
 
-  window[key] = { version: '2.3.3', revision: 'vue-review-1', findRoots, findRouters, findRouter, current, mode, base, fullPath, routeUrl };
+  window[key] = { version: '2.3.4', revision: 'vue-review-1', findRoots, findRouters, findRouter, current, mode, base, fullPath, routeUrl };
 })();

@@ -30,6 +30,9 @@ const TAB_SCRIPT_MAX_ITEMS = 1600;
 const TAB_INLINE_MAX_CHARS = 8 * 1024 * 1024;
 const TAB_RECORDS_KEY = 'aegisscope_tab_records_v1';
 const tabRecordUrls = new Map();
+const tabNavigationRequests = new Map();
+const tabNavigationGeneration = new Map();
+const requestGenerations = new Map();
 let tabRecordsDirty = false, tabRecordsTimer = null, tabRecordsWriting = null;
 const tabDataReady = restoreTabRecords();
 
@@ -223,9 +226,33 @@ function trimTabScriptBucket(bucket) {
   }
 }
 
+// Loading notifications can repeat after a fast response has already completed.
+// Reset HTTP observations at the actual main-frame request, never at a late UI event.
+chrome.webRequest.onBeforeRequest.addListener((details) => {
+  if (details.tabId < 0) return;
+  if (details.type === 'main_frame' && details.frameId === 0 && tabNavigationRequests.get(details.tabId) !== details.requestId) {
+    tabNavigationRequests.set(details.tabId, details.requestId);
+    const generation = (tabNavigationGeneration.get(details.tabId) || 0) + 1;
+    tabNavigationGeneration.set(details.tabId, generation);
+    tabDataReady.then(() => {
+      if (tabNavigationGeneration.get(details.tabId) !== generation) return;
+      tabScripts.delete(details.tabId);
+      tabObservations.delete(details.tabId);
+      tabRecordUrls.set(details.tabId, details.url);
+      scheduleTabRecords();
+    }).catch(() => {});
+  }
+  requestGenerations.set(details.requestId, { tabId:details.tabId, generation:tabNavigationGeneration.get(details.tabId) || 0 });
+  while (requestGenerations.size > 5000) requestGenerations.delete(requestGenerations.keys().next().value);
+}, { urls:['http://*/*','https://*/*'] });
+chrome.webRequest.onErrorOccurred.addListener(details => requestGenerations.delete(details.requestId), { urls:['<all_urls>'] });
+
 chrome.webRequest.onCompleted.addListener(
   (details) => {
+    const observed = requestGenerations.get(details.requestId);
+    requestGenerations.delete(details.requestId);
     tabDataReady.then(async () => {
+    if (observed && observed.generation !== (tabNavigationGeneration.get(details.tabId) || 0)) return;
     if (!tabRecordUrls.has(details.tabId) && details.tabId >= 0) tabRecordUrls.set(details.tabId, await getTabUrl(details.tabId));
     recordObservation(details);
     scheduleTabRecords();
@@ -248,13 +275,23 @@ chrome.webRequest.onCompleted.addListener(
   ['responseHeaders']
 );
 
-chrome.tabs.onUpdated.addListener((tabId, changeInfo) => {
+chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
+  const loadingHint = changeInfo.url || tab?.pendingUrl || tab?.url || '';
+  const nonHttpLoading = changeInfo.status === 'loading' && loadingHint && !/^https?:/i.test(loadingHint);
+  let nonHttpGeneration;
+  if (nonHttpLoading) {
+    nonHttpGeneration = (tabNavigationGeneration.get(tabId) || 0) + 1;
+    tabNavigationGeneration.set(tabId, nonHttpGeneration);
+  }
   tabDataReady.then(async () => {
     if (changeInfo.url) tabRecordUrls.set(tabId, changeInfo.url);
   if (changeInfo.status === 'loading') {
-    tabScripts.delete(tabId);
-    tabObservations.delete(tabId);
-    tabRecordUrls.set(tabId, changeInfo.url || await getTabUrl(tabId));
+    const loadingUrl = loadingHint || await getTabUrl(tabId);
+    if (nonHttpLoading && tabNavigationGeneration.get(tabId) === nonHttpGeneration) {
+      tabScripts.delete(tabId);
+      tabObservations.delete(tabId);
+    }
+    tabRecordUrls.set(tabId, loadingUrl);
     scheduleTabRecords();
     (async () => {
       const url = changeInfo.url || await getTabUrl(tabId);
@@ -270,6 +307,9 @@ chrome.tabs.onUpdated.addListener((tabId, changeInfo) => {
 });
 
 chrome.tabs.onRemoved.addListener((tabId) => {
+  tabNavigationRequests.delete(tabId);
+  tabNavigationGeneration.delete(tabId);
+  for (const [id, request] of requestGenerations) if (request.tabId === tabId) requestGenerations.delete(id);
   tabDataReady.then(() => {
   tabScripts.delete(tabId);
   tabObservations.delete(tabId);

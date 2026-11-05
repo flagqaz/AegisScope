@@ -251,9 +251,56 @@ function analyzeSource(source, meta = {}) {
     }
   }
 
+  let cryptoFlow;
+  try {
+    cryptoFlow = self.AEGISSCOPE_CRYPTO_FLOW?.analyze(source, {
+      perRule: perRuleLimit, findings: Math.max(0, totalLimit - findings.length)
+    }) || { findings: [], coverage: { status: 'unavailable' } };
+  } catch (_) {
+    cryptoFlow = { findings: [], coverage: { status: 'failed', reason: '加密参数常量追踪异常，其他规则仍继续扫描' } };
+  }
+  for (const item of cryptoFlow.findings) {
+    const isSecret = ['key', 'privateKey', 'password'].includes(item.role);
+    const algorithms = [...new Set(item.cryptoUsages.map(u => u.algorithm))];
+    const algorithmLabel = algorithms.join(' / ');
+    const roles = { key: '硬编码密钥 / 口令', privateKey: '硬编码私钥材料', password: '固定派生口令', iv: '固定 IV', nonce: '固定 nonce / counter', salt: '固定盐值（非秘密参数）' };
+    const onlyAES = algorithms.length === 1 && algorithms[0] === 'AES';
+    const ruleId = onlyAES && ['key', 'iv'].includes(item.role) ? `hardcoded-aes-${item.role}-flow` : `hardcoded-crypto-${item.role}-flow`;
+    if (findings.length >= totalLimit) { ruleLimits.push(ruleId); break; }
+    const { line, col } = getLineCol(source, item.start, lineStarts);
+    const usages = item.cryptoUsages.map(usage => ({ ...usage, ...getLineCol(source, usage.callOffset, lineStarts) }));
+    const trace = usages.map(u => `${u.variablePath.join(' → ')}${u.variablePath.length ? ' → ' : ''}${u.api || u.receiver} 的 ${u.role} 参数（${u.algorithm} / ${u.operation} / ${u.encoding}）`).join('；');
+    const evidence = `静态常量引用链：${trace}。已定位源码中的固定参数，未执行加解密或验证服务端接受情况。`;
+    const finding = {
+      ruleId, ruleName: `${algorithmLabel} 调用中的${roles[item.role] || item.role}`,
+      category: 'crypto-vuln', severity: isSecret ? 'high' : item.role === 'salt' ? 'info' : 'medium', confidence: 'likely', evidence,
+      line, col, offset: item.start, match: source.slice(item.start, item.end), captured: item.value,
+      verification: 'static-constant-flow', cryptoUsages: usages,
+      context: getContext(source, item.start, item.end, meta.contextSize || 80),
+      description: isSecret ? `固定材料经变量引用或编码解析后传入 ${algorithmLabel} 的 ${item.role} 参数；仅证明静态引用，未验证材料格式、有效性及实际执行。` : item.role === 'salt' ? '盐值通常不需要保密；固定盐值是需要结合派生用途评估的配置线索，不等同于密钥泄露。' : '固定 IV、nonce 或计数器与密钥分别展示；风险取决于算法模式及是否重复使用。',
+      exploit: '',
+      recommendation: isSecret ? '评估固定秘密材料的实际用途，避免把需保密的密钥发布到前端，并按业务需要轮换。' : item.role === 'salt' ? '按密钥派生方案评估盐值的随机性与唯一性；盐值可以公开保存。' : '按实际算法模式使用合适的随机或唯一 IV / nonce，避免不当复用。',
+      meta
+    };
+    const priorIndex = findings.findIndex(f => f.captured === item.value &&
+      (item.role === 'key' ? ['hardcoded-aes-key', 'hardcoded-symmetric-crypto-key', 'hardcoded-signature-key'] : ['iv', 'nonce'].includes(item.role) ? ['hardcoded-iv'] : item.role === 'salt' ? ['hardcoded-signature-key'] : []).includes(f.ruleId) &&
+      f.offset <= item.start && f.offset + f.match.length >= item.end);
+    if (priorIndex >= 0) findings[priorIndex] = finding;
+    else findings.push(finding);
+  }
+  stats.bySeverity = { critical: 0, high: 0, medium: 0, low: 0, info: 0 };
+  stats.byConfidence = { confirmed: 0, likely: 0, suspected: 0 };
+  stats.byCategory = {};
+  for (const f of findings) {
+    stats.bySeverity[f.severity]++;
+    stats.byConfidence[f.confidence]++;
+    stats.byCategory[f.category] = (stats.byCategory[f.category] || 0) + 1;
+  }
+
   // 元信息扫描（不进 findings）
   const cryptoLibs = new Set();
   const cryptoAlgos = new Set();
+  for (const item of cryptoFlow.findings) for (const usage of item.cryptoUsages) cryptoAlgos.add(usage.algorithm);
   const decryptions = new Map();
   const bundlers = new Set();
   const frameworks = new Set();
@@ -353,6 +400,7 @@ function analyzeSource(source, meta = {}) {
       ...stats,
       ruleLimits,
       validationErrors: Array.from(validationErrors),
+      cryptoFlow: cryptoFlow.coverage,
       cryptoLibs: Array.from(cryptoLibs),
       cryptoAlgos: Array.from(cryptoAlgos),
       decryptions: Array.from(decryptions.values()),
