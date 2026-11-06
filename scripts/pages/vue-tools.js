@@ -42,19 +42,33 @@ let analyzing = false;
 let selectedRouterId = '';
 let activeDocumentId = null;
 let resumeAnalysis = false;
+let autoAnalysisTimer = null;
+function scheduleAutoAnalysis() {
+  clearTimeout(autoAnalysisTimer);
+  autoAnalysisTimer = setTimeout(() => {
+    autoAnalysisTimer = null;
+    if (!navigating && !analyzing) analyze();
+  }, 100);
+}
 
 // Invalidate a completed result when the tab subsequently redirects or reloads.
 // This is event-driven: no permanent polling of the target page is needed.
-chrome.tabs.onUpdated.addListener((tabId, change) => {
+chrome.tabs.onUpdated.addListener((tabId, change, tab) => {
   if (tabId !== targetTabId) return;
   if (change.url) els.origin.textContent = change.url;
+  let sameSite = false;
+  try {
+    const next = new URL(change.url || tab?.url || currentTab?.url);
+    sameSite = /^https?:$/.test(next.protocol) && next.origin === new URL(currentTab?.url).origin;
+  } catch {}
   if (change.status === 'complete' && resumeAnalysis) {
     resumeAnalysis = false;
-    analyze();
+    if (sameSite) scheduleAutoAnalysis();
     return;
   }
   if (!navigating && (change.status === 'loading' || (change.url && latest?.url && change.url !== latest.url))) {
-    if (change.status === 'loading' && analyzing) resumeAnalysis = true;
+    clearTimeout(autoAnalysisTimer);
+    resumeAnalysis = sameSite && (change.status === 'loading' || tab?.status === 'loading');
     analysisGeneration++;
     analyzing = false;
     latest = null;
@@ -64,6 +78,7 @@ chrome.tabs.onUpdated.addListener((tabId, change) => {
     els.analyze.disabled = false;
     updateAuthorizedButtons();
     setStatus('目标页面已变化，请重新分析后操作。', true);
+    if (sameSite && !resumeAnalysis) scheduleAutoAnalysis();
   }
   if (!lastNavigation || navigating) return;
   if (change.status === 'loading' || (change.url && change.url !== lastNavigation.url)) {
@@ -74,6 +89,7 @@ chrome.tabs.onUpdated.addListener((tabId, change) => {
 chrome.tabs.onRemoved.addListener((tabId) => {
   if (tabId !== targetTabId) return;
   analysisGeneration++;
+  clearTimeout(autoAnalysisTimer);
   resumeAnalysis = false;
   analyzing = false;
   selectedRouterId = '';
@@ -192,7 +208,6 @@ async function refreshTargetPage() {
     setStatus('正在刷新目标页面...');
     await chrome.tabs.reload(targetTabId);
     await waitForTabSettled(8000);
-    await new Promise((resolve) => setTimeout(resolve, 700));
     await analyze();
     setStatus('目标页面已刷新，可以重新尝试路由跳转。');
   } catch (error) {
@@ -242,7 +257,9 @@ function getEarlyTarget(url) {
 }
 
 async function analyze() {
-  if (navigating) return;
+  if (navigating || analyzing) return;
+  clearTimeout(autoAnalysisTimer);
+  resumeAnalysis = false;
   const generation = ++analysisGeneration;
   analyzing = true;
   els.analyze.disabled = true;
@@ -251,16 +268,16 @@ async function analyze() {
   renderRoutes();
   lastNavigation = null;
   try {
-  await syncVueTarget();
   setStatus('分析中...');
   let data;
+  let attempt = 0;
   const until = Date.now() + 3200;
   do {
     data = await runInPage(analyzeVueRuntime);
     if (generation !== analysisGeneration) return;
     if (!data?.ok || data.router?.detected || selectedRouterId || Date.now() >= until) break;
     setStatus('等待页面挂载 Vue 实例...');
-    await new Promise((resolve) => setTimeout(resolve, 350));
+    await new Promise((resolve) => setTimeout(resolve, [100, 200, 350][Math.min(attempt++, 2)]));
   } while (generation === analysisGeneration);
   if (generation !== analysisGeneration) return;
   latest = data;
@@ -289,6 +306,7 @@ async function mutateVueRuntime(action) {
 }
 
 async function restoreVueRuntime() {
+  clearTimeout(autoAnalysisTimer);
   resumeAnalysis = false;
   analysisGeneration++;
   analyzing = false;
@@ -312,6 +330,16 @@ async function restoreVueRuntime() {
 
 async function runInPage(func, args = []) {
   await syncVueTarget(func !== analyzeVueRuntime);
+  // Analysis is read-only: reuse this document's helper when available. A new
+  // document reports a missing helper and takes the existing installation path.
+  if (func === analyzeVueRuntime) {
+    const [fast] = await chrome.scripting.executeScript({
+      target: { tabId: targetTabId, frameIds: [0] }, world: 'MAIN',
+      func, args: [selectedRouterId]
+    });
+    if (fast?.result && !fast.result.needsRuntime)
+      return { ...fast.result, documentId: fast.documentId };
+  }
   const [helper] = await chrome.scripting.executeScript({
     target: { tabId: targetTabId }, world: 'MAIN', files: ['scripts/injected/vue-runtime.js']
   });
@@ -559,11 +587,12 @@ function escapeHtml(str) {
 
 function analyzeVueRuntime(routerId = '') {
   try {
+    if (window.__AEGISSCOPE_VUE_RUNTIME__?.revision !== 'vue-review-1') return { needsRuntime: true };
     const roots = findVueRoots();
     const vueInfo = analyzeVueRoots(roots);
     window.__AEGISSCOPE_VUE_EARLY_GUARD__?.scan?.();
     const hits = window.__AEGISSCOPE_VUE_RUNTIME__.findRouters(roots);
-    const routerHit = window.__AEGISSCOPE_VUE_RUNTIME__.findRouter(roots, routerId);
+    const routerHit = (routerId ? hits.find(hit => hit.id === routerId) : hits[0]) || null;
     if (routerId && !routerHit) return { ok: false, error: '所选路由器已卸载，请重新分析并选择实例', routers: hits.map(({id, source}) => ({id, source})), routes: [] };
     const router = routerHit?.router;
     const routes = router ? getRoutes(router) : [];
@@ -1289,7 +1318,9 @@ async function navigateVueRoute(path, options = {}) {
       return failure(navigationError || '页面未到达目标路由，可能被守卫拦截或重定向');
     }
     if (!target?.matched?.length) return failure('目标未匹配到可渲染的路由');
-    if (target.matched.some((record) => record.redirect)) {
+    // A layout can redirect its own entry while still rendering child routes.
+    // Only the final matched record determines whether this target redirects.
+    if (target.matched.at(-1)?.redirect) {
       return failure('该路由配置了重定向，请选择最终页面路由');
     }
     // Use Vue Router's normalized route and lazy-component cache. Changing only the

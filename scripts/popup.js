@@ -275,8 +275,10 @@ async function init() {
     const vueButton = event.target.closest('[data-action="vue-tools"]');
     if (vueButton) {
       cancelSniffWork();
-      openVueTools();
+      openVueTools('vue');
     }
+    const reactButton = event.target.closest('[data-action="react-tools"]');
+    if (reactButton) { cancelSniffWork(); openVueTools('react'); }
     const jqueryButton = event.target.closest('[data-action="jquery-vuln-check"]');
     if (jqueryButton) {
       cancelSniffWork();
@@ -2147,6 +2149,19 @@ function getSniffDomSelectors() {
 }
 
 async function collectSniffRuntimeSignals() {
+  const signals = await collectSniffRuntimeSignalsBase();
+  try {
+    const [entry] = await chrome.scripting.executeScript({ target:{tabId:currentTabId}, world:'MAIN', func:AegisReactProbe });
+    const react = entry?.result;
+    if (react && react.url === signals.url && react.documentEpoch === signals.documentEpoch) {
+      signals.reactRuntime = [...new Set([...(signals.reactRuntime || []), ...react.evidence, ...react.versions.map(v=>'version:'+v)])];
+      signals.coverage = [...new Set([...(signals.coverage || []), ...react.coverage.filter(x=>x.includes('预算'))])];
+    }
+  } catch { signals.coverage = [...(signals.coverage || []), 'React 补充运行时检查不可用']; }
+  return signals;
+}
+
+async function collectSniffRuntimeSignalsBase() {
   const extraChains = getSniffGlobalChains();
   const domRequests = getSniffSignalKeys().domRequests;
   try {
@@ -2252,6 +2267,9 @@ function renderSniffFinding(item) {
         <button class="sniff-vue-jump" data-action="vue-tools" title="跳转Vue 工具">跳转Vue 工具</button>
       </div>
     `;
+  }
+  if (item.name === 'React') {
+    return `<div class="sniff-tech-row sniff-tech-row-vue">${main}<button class="sniff-vue-jump" data-action="react-tools" title="跳转 React 工具">跳转 React 工具</button></div>`;
   }
   if (item.name === 'jQuery') {
     const jqueryCandidates = findJqueryScriptCandidates(item);
@@ -4161,8 +4179,9 @@ async function openVulnScan() {
   await chrome.tabs.create({ url });
 }
 
-async function openVueTools() {
-  const url = chrome.runtime.getURL(`pages/vue-tools.html?tabId=${currentTabId}`);
+async function openVueTools(framework = '') {
+  const page = framework === 'react' ? 'framework-tools' : 'vue-tools';
+  const url = chrome.runtime.getURL(`pages/${page}.html?tabId=${currentTabId}`);
   await chrome.tabs.create({ url });
 }
 

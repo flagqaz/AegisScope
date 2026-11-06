@@ -349,7 +349,8 @@ window.AEGISSCOPE_SNIFF_RULES = [
       { source: 'globals', key: 'React.version', regex: '([0-9][\\w.-]+)', score: 98, version: 1 },
       { source: 'globals', key: 'React', regex: '.+', score: 92 },
       { source: 'globals', key: 'ReactDOM', regex: '.+', score: 90 },
-      { source: 'reactRuntime', regex: '^mounted-(?:root|fiber)$', score: 98 },
+      { source: 'reactRuntime', regex: '^version:([0-9][\\w.-]+)$', score: 98, version: 1 },
+      { source: 'reactRuntime', regex: '^mounted-(?:root|fiber|stack)$', score: 98 },
       { source: 'html', regex: 'data-reactroot|react-dom', score: 76 },
       { source: 'scriptSrc', regex: 'react(?:\\.production)?(?:\\.min)?\\.js|react-dom(?:\\.production)?(?:\\.min)?\\.js', score: 82 }
     ]

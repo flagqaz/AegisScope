@@ -1,0 +1,12 @@
+/* React-specific content only. Layout and theme are shared with the Vue console. */
+body[data-page='react-tools'] .react-row > div { min-width: 0; }
+body[data-page='react-tools'] .react-row .meta { display: block; }
+body[data-page='react-tools'] .react-row button { align-self: center; }
+body[data-page='react-tools'] .value { overflow-wrap: anywhere; }
+body[data-page='react-tools'] .runtime-control { grid-template-columns: minmax(0, 1fr); }
+body[data-page='react-tools'] .react-details { padding: 16px; max-height: calc(100vh - 250px); overflow: auto; scrollbar-width: thin; scrollbar-color: #cbd6e7 #f6f8fc; }
+body[data-page='react-tools'] .react-details h3 { margin: 0 0 10px; font-size: 13px; }
+body[data-page='react-tools'] .react-details h3:not(:first-child) { margin-top: 24px; }
+body[data-page='react-tools'] .react-details ul { margin: 0; padding-left: 18px; }
+body[data-page='react-tools'] .react-details li { margin-bottom: 8px; overflow-wrap: anywhere; line-height: 1.7; }
+body[data-page='react-tools'] .empty { margin: 0; padding: 14px; }
