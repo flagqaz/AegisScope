@@ -92,11 +92,36 @@ function isReservedIp(ip) {
 
 function isLikelyInternationalPhone(v) {
   const raw = String(v || '').trim();
-  if (!/^\+/.test(raw)) return false;
+  if (!/^\+[1-9]/.test(raw)) return false;
   const d = raw.replace(/\D/g, '');
   if (d.length < 8 || d.length > 15) return false;
-  if (/^(.)\1+$/.test(d)) return false;
-  if (/^(?:0123456789|1234567890|9876543210|0987654321)/.test(d)) return false;
+  return true;
+}
+
+// Reject fragments of dotted numbers and SVG coordinate streams without using
+// an unrelated keyword elsewhere in a minified line as a blanket exclusion.
+function isIpLiteralCandidate(ctx) {
+  const source = ctx.source, start = ctx.offset, end = start + ctx.captured.length;
+  const before = source[start - 1] || '', after = source[end] || '';
+  if (/[\w$]/.test(before) || /[\w$]/.test(after)) return false;
+  if (before === '.' || (after === '.' && /[\w.]/.test(source[end + 1] || ''))) return false;
+  if (before === ':' && /(?:[\da-f]{0,4}:){2,}$/i.test(source.slice(Math.max(0, start - 80), start))) return false;
+  const parts = ctx.captured.split('.');
+  if (parts.length !== 4 || parts.some(p => !/^(?:0|[1-9]\d{0,2})$/.test(p) || Number(p) > 255)) return false;
+
+  // A bounded run handles both SVG d attributes and bundled icon path strings,
+  // including paths longer than the ordinary finding context window.
+  let lo = start, hi = end;
+  const coordinate = /[\d\s.,+\-MmZzLlHhVvCcSsQqTtAaEe]/;
+  while (lo > 0 && start - lo < 2048 && coordinate.test(source[lo - 1])) lo--;
+  while (hi < source.length && hi - end < 2048 && coordinate.test(source[hi])) hi++;
+  const run = source.slice(lo, hi).trim();
+  const commands = run.match(/[MmLlHhVvCcSsQqTtAa]\s*(?=[+\-.\d])/g) || [];
+  if (/^[Mm]\s*[+\-.\d]/.test(run) || commands.length >= 2) return false;
+
+  // Only a directly labelled version value is excluded, not a neighbouring key.
+  const prefix = source.slice(Math.max(0, start - 100), start);
+  if (/(?:\b(?:version|ver|release|buildVersion)|["'](?:version|ver|release|buildVersion)["'])\s*[:=]\s*["'`]v?$/i.test(prefix)) return false;
   return true;
 }
 
@@ -1086,15 +1111,15 @@ const RULES = [
     id: 'cn-mobile-phone',
     name: '中国大陆手机号',
     category: 'pii', severity: 'medium', confidence: 'likely',
-    regex: /(?<!\d)(1[3-9]\d{9})(?!\d)/g,
-    description: '中国大陆 11 位手机号格式。',
+    regex: /(?<!\d)(1[3-9]\d(?:\d{8}|([ \u00a0\u202f-])\d{4}\2\d{4}))(?!\d)/g,
+    description: '中国大陆 11 位手机号，支持连续数字或 3-4-4 分组。',
     exploit: '可用于短信轰炸、撞库、钓鱼或用户身份关联。',
     recommendation: '接口响应手机号应按权限返回并脱敏；源码中禁止硬编码真实手机号。',
     validate(ctx) {
       const seg = ctx.source.slice(Math.max(0, ctx.offset - 120), Math.min(ctx.source.length, ctx.offset + 120));
       // Ordinary .test() calls and identifiers such as latestVersion are not sample markers.
       // Keep ambiguous sample evidence visible instead of discarding a neighbouring real number.
-      if (ctx.captured === '13800138000' || /\b(?:example|demo|mock|placeholder)\b|手机号示例|示例手机号|测试手机号/i.test(seg)) {
+      if (ctx.captured.replace(/\D/g, '') === '13800138000' || /\b(?:example|demo|mock|placeholder)\b|手机号示例|示例手机号|测试手机号/i.test(seg)) {
         return { confidence: 'suspected', evidence: '号码或附近文本含示例标记，保留线索供人工核验' };
       }
       if (!/(?:phone|mobile|tel|手机号|手机|电话|user|customer|member|account|contact)/i.test(seg)) {
@@ -1108,15 +1133,20 @@ const RULES = [
     id: 'international-phone-number',
     name: 'International Phone Number',
     category: 'pii', severity: 'medium', confidence: 'likely',
-    regex: /(\+\d[\d\s().-]{7,22}\d)/g,
+    regex: /(\+[1-9][\d\t \u00a0\u202f().-]{6,22}\d)(?!\d)/g,
     description: 'International E.164-like phone number exposure in source code or API payload examples.',
     exploit: 'May be used for user enumeration, phishing, SMS abuse, or correlating leaked user records.',
     recommendation: 'Avoid shipping real phone numbers in frontend code and mask phone fields in API responses.',
     validate(ctx) {
       if (!isLikelyInternationalPhone(ctx.captured)) return { drop: true };
       const seg = ctx.source.slice(Math.max(0, ctx.offset - 120), Math.min(ctx.source.length, ctx.offset + 120));
-      if (/(?:example|demo|test|mock|placeholder)/i.test(seg)) return { drop: true };
-      if (!/(?:phone|mobile|tel|contact|user|customer|member|account|recipient|owner)/i.test(seg)) {
+      const prefix = ctx.source.slice(Math.max(0, ctx.offset - 80), ctx.offset);
+      const digits = ctx.captured.replace(/\D/g, '');
+      if (/(?:\b(?:example|demo|mock|placeholder|test)|(?:号码|电话)示例|示例(?:号码|电话)?)["']?\s*[:：=]?\s*["'`]?\s*$/i.test(prefix)
+          || /^(?:(\d)\1+$|1234567890|9876543210)/.test(digits)) {
+        return { confidence: 'suspected', evidence: '示例字段或规则数字序列，保留号码线索供核验' };
+      }
+      if (!/(?:phone|mobile|tel|contact|user|customer|member|account|recipient|owner|电话|手机|热线|联系方式)/i.test(seg)) {
         return { confidence: 'suspected' };
       }
       return null;
@@ -1133,9 +1163,8 @@ const RULES = [
     recommendation: '避免在前端暴露源站/内部资产 IP；配置应由后端或运行时环境注入。',
     validate(ctx) {
       const ip = ctx.captured;
-      if (isReservedIp(ip)) return { drop: true };
+      if (!isIpLiteralCandidate(ctx) || isReservedIp(ip)) return { drop: true };
       const seg = ctx.source.slice(Math.max(0, ctx.offset - 120), Math.min(ctx.source.length, ctx.offset + 120));
-      if (/(?:version|chunk|hash|rgba|rgb|color|matrix|translate3d)/i.test(seg)) return { drop: true };
       if (!/(?:host|server|ip|endpoint|baseURL|proxy|gateway|origin|cdn|api|url)/i.test(seg)) return { confidence: 'suspected' };
       return null;
     }
@@ -1150,6 +1179,7 @@ const RULES = [
     exploit: '可辅助识别内网架构、调试接口、代理配置或 SSRF 目标。',
     recommendation: '前端产物不应暴露内网地址；调试/测试地址需在构建时剔除。',
     validate(ctx) {
+      if (!isIpLiteralCandidate(ctx)) return { drop: true };
       const seg = ctx.source.slice(Math.max(0, ctx.offset - 100), Math.min(ctx.source.length, ctx.offset + 100));
       if (/(?:sourceMappingURL|webpack|devtool|example|demo)/i.test(seg)) return { confidence: 'suspected' };
       return null;

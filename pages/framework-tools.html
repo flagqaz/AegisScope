@@ -13,7 +13,7 @@
     <div class="brand">
       <div class="mark" aria-hidden="true"><img src="../icons/icon48.png" alt=""></div>
       <div>
-        <h1>玄镜 AegisScope React 控制台 <span class="version">V2.3.5</span></h1>
+        <h1>玄镜 AegisScope React 控制台 <span class="version">V2.3.6</span></h1>
         <span id="origin" class="origin"></span>
       </div>
     </div>
@@ -54,9 +54,9 @@
   <section class="runtime-control">
     <div>
       <div class="runtime-title">路由与页面链接</div>
-      <div class="runtime-desc">“打开”按网站正常权限导航。路由地址依据当前 Hash/History 形式及可读取的 basename 生成，特殊部署请核对地址。</div>
+      <div class="runtime-desc">“打开”优先调用已识别的页面路由器；“地址打开”按地址重新加载页面。导航仍由网站处理，结果会区分地址到达与正文更新。</div>
       <div class="usage-tip">
-        <span>动态路由需具体参数</span>
+        <span>动态路由可填参跳转</span>
         <span>页面链接单独标注来源；识别结果与可见范围请结合运行时详情查看。</span>
       </div>
     </div>
@@ -66,7 +66,7 @@
     <div class="panel">
       <div class="panel-head">
         <h2>路由列表</h2>
-        <input id="search" type="search" aria-label="过滤路由和链接" placeholder="过滤路径或来源">
+        <input id="search" type="search" aria-label="过滤路由和链接" placeholder="过滤路径、名称或来源">
       </div>
       <div id="routes" class="route-list"></div>
     </div>
@@ -76,6 +76,7 @@
         <span id="status" class="status" role="status" aria-live="polite">正在分析 React…</span>
       </div>
       <div class="react-details">
+        <div id="navigationResult" class="react-navigation-result" role="status" hidden></div>
         <h3>挂载实例</h3>
         <ul id="mounts"></ul>
         <h3>采集范围</h3>
@@ -89,6 +90,19 @@
     <a class="author-link" href="https://github.com/flagqaz/AegisScope" target="_blank" rel="noreferrer">by.农夫三拳</a>
   </footer>
 
+  <dialog id="routeParams" aria-labelledby="paramsTitle">
+    <form id="paramsForm">
+      <h2 id="paramsTitle">填写路由参数</h2>
+      <p id="paramsPattern" class="path"></p>
+      <p id="paramsHint"></p>
+      <div id="paramsFields"></div>
+      <label class="react-param-field">查询参数（可选）<input id="paramsQuery" placeholder="tab=overview" maxlength="1500"></label>
+      <label class="react-param-field">锚点（可选）<input id="paramsFragment" placeholder="section" maxlength="500"></label>
+      <p>目标地址</p><output id="paramsPreview" class="path" aria-live="polite"></output>
+      <p id="paramsError" role="alert"></p>
+      <div class="dialog-actions"><button id="paramsCancel" type="button">取消</button><button id="paramsSubmit" type="submit">打开</button></div>
+    </form>
+  </dialog>
   <script src="../scripts/lib/react-inspect.js"></script>
   <script src="../scripts/pages/react-tools.js"></script>
 </body>

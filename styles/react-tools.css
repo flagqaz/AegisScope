@@ -1,7 +1,13 @@
 /* React-specific content only. Layout and theme are shared with the Vue console. */
 body[data-page='react-tools'] .react-row > div { min-width: 0; }
 body[data-page='react-tools'] .react-row .meta { display: block; }
+body[data-page='react-tools'] .react-route-title { margin-top: 6px; }
+body[data-page='react-tools'] .react-navigation-result { white-space: pre-wrap; overflow-wrap: anywhere; line-height: 1.7; padding: 12px; margin-bottom: 16px; background: #f5f7ff; border: 1px solid #e1e7fa; border-radius: 10px; }
 body[data-page='react-tools'] .react-row button { align-self: center; }
+body[data-page='react-tools'] .react-route-actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 6px; }
+@media (max-width: 600px) {
+  body[data-page='react-tools'] .react-route-actions { flex-direction: column; }
+}
 body[data-page='react-tools'] .value { overflow-wrap: anywhere; }
 body[data-page='react-tools'] .runtime-control { grid-template-columns: minmax(0, 1fr); }
 body[data-page='react-tools'] .react-details { padding: 16px; max-height: calc(100vh - 250px); overflow: auto; scrollbar-width: thin; scrollbar-color: #cbd6e7 #f6f8fc; }
@@ -10,3 +16,12 @@ body[data-page='react-tools'] .react-details h3:not(:first-child) { margin-top: 
 body[data-page='react-tools'] .react-details ul { margin: 0; padding-left: 18px; }
 body[data-page='react-tools'] .react-details li { margin-bottom: 8px; overflow-wrap: anywhere; line-height: 1.7; }
 body[data-page='react-tools'] .empty { margin: 0; padding: 14px; }
+body[data-page='react-tools'] #routeParams { width: min(560px, calc(100vw - 48px)); max-height: 85vh; overflow: auto; box-sizing: border-box; }
+body[data-page='react-tools'] #paramsForm { padding: 18px; }
+body[data-page='react-tools'] #paramsTitle { margin: 0 0 14px; font-size: 16px; }
+body[data-page='react-tools'] #paramsPattern { margin: 0 0 14px; }
+body[data-page='react-tools'] .react-param-field { display: flex; flex-direction: column; gap: 6px; margin: 12px 0; }
+body[data-page='react-tools'] .react-param-field input:not([type='checkbox']) { width: 100%; box-sizing: border-box; padding: 9px 10px; font: inherit; }
+body[data-page='react-tools'] #paramsForm .dialog-actions { padding: 12px 0 0; }
+body[data-page='react-tools'] #paramsPreview { display: block; overflow-wrap: anywhere; }
+body[data-page='react-tools'] #paramsError { color: #a92d48 !important; }

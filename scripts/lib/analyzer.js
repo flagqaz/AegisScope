@@ -159,6 +159,31 @@ function checkContextDeny(rule, source, offset, len) {
   return rule.contextDeny.test(seg);
 }
 
+// Regex matches arrive in source order. Advance one tokenizer per rule and file,
+// only as far as the last candidate. Comments are gaps between tokens.
+function createPhoneOperatorCheck(source, meta) {
+  const script = [meta.originalUrl, meta.url].some(url => /\.[cm]?jsx?(?:[?#]|$)/i.test(url || ''))
+    && !/^\s*</.test(source);
+  let tokenizer, token, unavailable = !script || !self.acorn;
+  return (offset, grouped = false) => {
+    if (!unavailable) {
+      try {
+        tokenizer ||= self.acorn.tokenizer(source, { ecmaVersion: 'latest', allowHashBang: true });
+        while (!token || (token.end <= offset && token.type.label !== 'eof')) token = tokenizer.getToken();
+        return token.start === offset && token.type.label === (grouped ? 'num' : '+/-');
+      } catch {
+        unavailable = true;
+      }
+    }
+    // For mixed HTML or incomplete scripts only discard clear arithmetic, e.g.
+    // an indexed operand followed by addition in an inline minified script.
+    const left = source.slice(Math.max(0, offset - 96), offset);
+    const right = source.slice(offset, offset + 48);
+    if (grouped) return /(?:^|[=+*/(])\s*$/.test(left) && /^\d{3}-\d{4}-\d{4}\s*[;)+*/]/.test(right);
+    return /\[[\w$]+\]\s*$/.test(left) && /^\+\d+\s*(?:[+*/|&^;,)]|<\/script\b|$)/i.test(right);
+  };
+}
+
 function analyzeSource(source, meta = {}) {
   if (!source || typeof source !== 'string') return emptyResult();
   const R = self.JS_EXTRACTOR_RULES;
@@ -185,6 +210,8 @@ function analyzeSource(source, meta = {}) {
     if (!rule.regex) continue;
     const flags = rule.regex.flags.includes('g') ? rule.regex.flags : rule.regex.flags + 'g';
     const re = new RegExp(rule.regex.source, flags);
+    const mainlandPhone = rule.id === 'cn-mobile-phone';
+    const isPhoneOperator = mainlandPhone || rule.id === 'international-phone-number' ? createPhoneOperatorCheck(source, meta) : null;
 
     let m, perRule = 0;
     while ((m = re.exec(source)) !== null) {
@@ -193,6 +220,14 @@ function analyzeSource(source, meta = {}) {
       const captured = m[1] !== undefined ? m[1] : matched;
       const start = m.index;
       const end = start + matched.length;
+      if (isPhoneOperator) {
+        if (!mainlandPhone && isPhoneOperator(start)) continue;
+        if (mainlandPhone && captured.length > 11 && isPhoneOperator(start, true)) continue;
+        if (mainlandPhone && captured.length === 11) {
+          const plus = /\+\s*$/.exec(source.slice(Math.max(0, start - 48), start));
+          if (plus && isPhoneOperator(start - plus[0].length)) continue;
+        }
+      }
 
       // 上下文白/黑名单
       if (!checkContextRequire(rule, source, start, matched.length)) continue;

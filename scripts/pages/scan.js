@@ -111,7 +111,7 @@ function renderCoverage() {
 }
 function failureResult(item, error, status = 'failed') {
   return { file: item.url, requestedUrl: item.url, kind: item.kind, size: 0, status,
-    error: error?.message || String(error), findings: [], stats: emptyStats() };
+    httpStatus: error?.httpStatus, error: error?.message || String(error), findings: [], stats: emptyStats() };
 }
 
 async function runScanOptimized(profile = 'standard') {
@@ -148,6 +148,8 @@ async function runScanOptimized(profile = 'standard') {
     const resp = await chrome.runtime.sendMessage({ type: 'GET_SNIFF_DATA', tabId: targetTabId });
     session.observations = resp?.resources || [];
     const frames = await getPageCodeResources(session);
+    const liveResourceUrls = new Set(frames.flatMap(f => (f.items || []).map(x => x.url)));
+    const scanOnlyUrls = new Set(frames.flatMap(f => f.scanOnlyUrls || []).filter(url => !liveResourceUrls.has(url)));
     // Fallback needs identity only; do not retain full page HTML after the scan finishes.
     session.frames = frames.map(({ url, frameId, documentId, timeOrigin }) => ({ url, frameId, documentId, timeOrigin }));
     const liveTab = await chrome.tabs.get(targetTabId);
@@ -160,7 +162,12 @@ async function runScanOptimized(profile = 'standard') {
       for (const item of frame.items || []) enqueue({ ...item, frameId: frame.frameId });
     }
     for (const s of resp?.scripts || []) {
-      if (!s.inline) { enqueue({ ...s, kind: 'script' }); continue; }
+      if (!s.inline) {
+        // A page-world retry is recorded by webRequest too. It is not a new
+        // website dependency; actual DOM/network references still take priority.
+        if (scanOnlyUrls.has(s.url) && s.type !== 'script') continue;
+        enqueue({ ...s, kind: 'script' }); continue;
+      }
       // Retain collected scripts removed from the DOM, with explicit snapshot provenance.
       if (typeof s.content !== 'string' || frames.some(f => f.html?.includes(s.content))) continue;
       const truncated = s.length > s.content.length || s.content.endsWith('/* ...truncated by collection limit */');
@@ -319,7 +326,10 @@ async function fetchCodeForScan(url, session = scanSession, budget = session.lim
   try { sameOrigin = new URL(session.origin).origin === target.origin; } catch {}
   try {
     const res = await fetch(target.href, { credentials: sameOrigin ? 'include' : 'omit', cache: 'no-store', signal: controller.signal });
-    if (!res.ok) { await res.body?.cancel().catch(() => {}); throw new Error(`HTTP ${res.status} ${res.statusText}`.trim()); }
+    if (!res.ok) {
+      await res.body?.cancel().catch(() => {});
+      throw Object.assign(new Error(`HTTP ${res.status} ${res.statusText}`.trim()), { httpStatus: res.status });
+    }
     const type = res.headers.get('content-type') || '';
     if (/^(?:image|audio|video|font)\/|application\/(?:wasm|zip|pdf)/i.test(type)) {
       await res.body?.cancel().catch(() => {}); throw new Error(`非文本资源（${type}），未执行文本规则扫描`);
@@ -333,13 +343,13 @@ async function fetchCodeForScan(url, session = scanSession, budget = session.lim
     const primaryError = error.name === 'AbortError' ? '资源读取超时' : error.message;
     const frame = (session.frames || []).find(f => (frameId == null || f.frameId === frameId) &&
       /^https?:/.test(f.url) && new URL(f.url).origin === target.origin);
-    if (!frame) throw new Error(primaryError);
+    if (!frame) throw Object.assign(new Error(primaryError), { httpStatus: error.httpStatus });
     try {
       const read = await fetchCodeFromPage(target.href, frame, budget, session);
       if ((/\.(?:[cm]?js|map)(?:[?#]|$)/i.test(target.href) || isJsonpResource(target.href)) && /^\s*(?:<!doctype\s+html|<html\b)/i.test(read.text)) throw new Error('页面内重试返回 HTML 登录页或错误页');
       return { ...read, readVia: 'page', primaryReadError: primaryError };
     } catch (fallbackError) {
-      throw new Error(`${primaryError}；页面内重试：${fallbackError.message}`);
+      throw Object.assign(new Error(`${primaryError}；页面内重试：${fallbackError.message}`), { httpStatus: fallbackError.httpStatus });
     }
   } finally { clearTimeout(timer); session.controllers.delete(controller); }
 }
@@ -363,7 +373,7 @@ async function fetchCodeFromPage(url, frame, budget, session) {
       args: [null, budget, { id, url, pageUrl: frame.url, timeOrigin: frame.timeOrigin, timeout: SCAN_FETCH_TIMEOUT_MS }] });
     const result = results?.[0]?.result;
     if (session.cancelled) throw new Error('扫描已停止');
-    if (!result || result.error) throw new Error(result?.error || '页面未返回读取结果');
+    if (!result || result.error) throw Object.assign(new Error(result?.error || '页面未返回读取结果'), { httpStatus: result?.httpStatus });
     return result;
   } finally { session.pageReads.delete(id); await cancel(); }
 }
@@ -372,7 +382,7 @@ async function fetchCodeFromPage(url, frame, budget, session) {
 async function readResponseTextLimited(response, maxBytes, pageRequest = null) {
   if (pageRequest) {
     const controller = globalThis.__aegisLeakPageReads?.get(pageRequest.id);
-    let timer;
+    let timer, ownRead;
     try {
       if (!controller || controller.signal.aborted) throw new Error('读取已取消');
       const verify = () => {
@@ -382,15 +392,22 @@ async function readResponseTextLimited(response, maxBytes, pageRequest = null) {
       };
       verify();
       timer = setTimeout(() => controller.abort(), pageRequest.timeout);
+      const history = globalThis.__aegisLeakScanReadHistory ||= [];
+      ownRead = { url: pageRequest.url, start: performance.now(), end: Infinity };
+      history.push(ownRead);
+      if (history.length > 4000) history.splice(0, history.length - 4000);
       const res = await fetch(pageRequest.url, { credentials: 'include', cache: 'no-store', redirect: 'error', signal: controller.signal });
-      if (!res.ok) { await res.body?.cancel(); throw new Error(`HTTP ${res.status}`); }
+      if (!res.ok) {
+        await res.body?.cancel().catch(() => {});
+        return { error: `HTTP ${res.status}`, httpStatus: res.status };
+      }
       const type = res.headers.get('content-type') || '';
       if (/^(?:image|audio|video|font)\/|application\/(?:wasm|zip|pdf)/i.test(type)) { await res.body?.cancel(); throw new Error(`非文本资源（${type}）`); }
       const read = await readResponseTextLimited(res, maxBytes);
       verify();
       return { ...read, responseUrl: res.url, sourceMap: res.headers.get('sourcemap') || res.headers.get('x-sourcemap') || '' };
     } catch (error) { return { error: error.name === 'AbortError' ? '读取已取消或超时' : error.message }; }
-    finally { clearTimeout(timer); globalThis.__aegisLeakPageReads?.delete(pageRequest.id); }
+    finally { if (ownRead) ownRead.end = performance.now(); clearTimeout(timer); globalThis.__aegisLeakPageReads?.delete(pageRequest.id); }
   }
   const reader = response.body.getReader();
   let bytes = 0, truncated = false;
@@ -490,8 +507,17 @@ function collectPageCodeResources(options = {}) {
     if (rel.includes('stylesheet') || rel.includes('icon') || (rel.includes('preload') && as === 'style')) continue;
     add(el.href || el.getAttribute('href'), rel.includes('manifest') ? 'manifest' : 'resource');
   }
+  const ownReads = globalThis.__aegisLeakScanReadHistory || [];
+  const ownReadsByUrl = new Map();
+  for (const read of ownReads) {
+    if (!ownReadsByUrl.has(read.url)) ownReadsByUrl.set(read.url, []);
+    ownReadsByUrl.get(read.url).push(read);
+  }
+  const scanOnlyUrls = new Set(ownReads.map(x => x.url)), independentUrls = new Set();
   for (const entry of performance.getEntriesByType('resource')) {
     const type = entry.initiatorType || 'resource';
+    if (['fetch','xmlhttprequest'].includes(type) && ownReadsByUrl.get(entry.name)?.some(r => entry.startTime >= r.start && entry.startTime <= r.end)) continue;
+    independentUrls.add(entry.name);
     if (['css', 'img', 'image', 'audio', 'video', 'font'].includes(type)) continue;
     add(entry.name, type === 'iframe' ? 'document' : type === 'script' ? 'script' : 'resource');
   }
@@ -499,7 +525,8 @@ function collectPageCodeResources(options = {}) {
   const html = '<!DOCTYPE html>\n' + document.documentElement.outerHTML;
   const maxChars = options.maxChars || 8 * 1024 * 1024;
   return { url: location.href, timeOrigin: performance.timeOrigin, baseUrl: document.baseURI, html: html.slice(0, maxChars), truncated: html.length > maxChars, omitted,
-    frameUrls: Array.from(document.querySelectorAll('iframe[src],frame[src]'), el => el.src), items: Array.from(items.values()) };
+    frameUrls: Array.from(document.querySelectorAll('iframe[src],frame[src]'), el => el.src), items: Array.from(items.values()),
+    scanOnlyUrls: [...scanOnlyUrls].filter(url => !items.has(url) && !independentUrls.has(url)) };
 }
 
 function analyzeFile(file, source, meta = {}) {
@@ -520,12 +547,10 @@ function discoverRelatedCodeUrls(source, baseUrl) {
 
   let m;
   const jsStringRe = /["'`]((?:(?:https?:)?\/\/|\/|\.{1,2}\/|(?:static|assets|js|dist|chunks|_next|_nuxt|tinymce|videoPlayer)\/)[^"'`\s<>]{1,220}\.(?:js|mjs|cjs|map)(?:\?[^"'`\s<>]*)?)["'`]/gi;
-  while ((m = jsStringRe.exec(source)) !== null) add(m[1]);
-
-  const webpackConcatRe = /(?:u|miniCssF)\s*=\s*function\s*\([^)]*\)\s*\{[\s\S]{0,1200}?return\s+([^;]+);/g;
-  while ((m = webpackConcatRe.exec(source)) !== null) {
-    const literals = [...m[1].matchAll(/["']([^"']+)["']/g)].map((x) => x[1]).join('');
-    if (/\.(?:js|mjs|cjs)(?:[?#]|$)/i.test(literals)) add(literals.replace(/\+.*$/, ''));
+  while ((m = jsStringRe.exec(source)) !== null) {
+    // Bundler context maps use source module paths as object keys, not URLs.
+    if (/^\s*:/.test(source.slice(jsStringRe.lastIndex, jsStringRe.lastIndex + 32))) continue;
+    add(m[1]);
   }
 
   for (const url of discoverWebpackRuntimeChunks(source, baseUrl)) add(url);
@@ -566,84 +591,90 @@ function discoverFrameworkAssets(source, baseUrl) {
 }
 
 function discoverWebpackRuntimeChunks(source, baseUrl) {
-  const out = new Set();
-  if (!/\b(?:__webpack_require__|webpackChunk|webpackJsonp|__webpack_modules__)\b/.test(source)) return [];
-
-  const basePath = guessWebpackBasePath(source, baseUrl);
-  const addCandidate = (raw) => {
+  if (!self.acorn || !/\b(?:__webpack_require__|webpackChunk|webpackJsonp|__webpack_modules__)\b/.test(source)) return [];
+  const out = new Set(), unknown = Symbol('unknown'), paths = new Map();
+  // Read literal public paths only. Never execute the site's loader or callbacks.
+  const publicPaths = /\b([\w$]+)\.p\s*=\s*(?!=)/g;
+  let match;
+  while ((match = publicPaths.exec(source))) {
+    let value = unknown;
     try {
-      const u = new URL(raw, baseUrl);
-      if (isLikelyRuntimeCodeUrl(u.href)) out.add(u.href);
-    } catch { /* ignore */ }
-  };
-  const joinChunk = (name, hash, suffix = '.js') => {
-    const cleanName = String(name || '').replace(/^["']|["']$/g, '');
-    const cleanHash = String(hash || '').replace(/^["']|["']$/g, '');
-    if (!cleanName || !cleanHash || cleanName.length > 80 || cleanHash.length > 80) return;
-    if (!/^[\w@~.-]+$/.test(cleanName) || !/^[a-f0-9]{5,}$/i.test(cleanHash)) return;
-    addCandidate(`${basePath}${cleanName}.${cleanHash}${suffix.startsWith('.') ? suffix : `.${suffix}`}`);
-  };
-
-  const blocks = [];
-  const runtimeRe = /__webpack_require__\.[up]\s*=\s*function\s*\([^)]*\)\s*\{[\s\S]{0,5000}?\}/g;
-  let m;
-  while ((m = runtimeRe.exec(source)) !== null) blocks.push(m[0]);
-  blocks.push(source.slice(0, 250000));
-
-  for (const block of blocks) {
-    const suffix = detectChunkSuffix(block);
-
-    const pairMapRe = /\{\s*((?:"?[\w@~.-]+"?\s*:\s*"?[\w@~.-]+"?\s*,?\s*){2,})\}/g;
-    let mapMatch, maps = [];
-    while ((mapMatch = pairMapRe.exec(block)) !== null && maps.length < 8) {
-      const pairs = parseSimpleObjectPairs(mapMatch[1]);
-      if (pairs.length >= 2 && pairs.length <= 220) maps.push(pairs);
+      const tokens = self.acorn.tokenizer(source.slice(publicPaths.lastIndex, publicPaths.lastIndex + 4096), { ecmaVersion: 'latest' });
+      const literal = tokens.getToken(), next = tokens.getToken();
+      if (literal.type.label === 'string' && literal.value !== 'auto' && [',',';','}','eof'].includes(next.type.label)) value = literal.value;
+    } catch {}
+    const name = match[1];
+    if (!paths.has(name)) paths.set(name, value);
+    else if (paths.get(name) !== value) paths.set(name, unknown);
+  }
+  const defaults = new Set(paths.values());
+  const defaultPath = defaults.size === 1 ? [...defaults][0] : paths.size ? unknown : '';
+  const candidates = /\breturn\s+|\b[\w$]+\.u\s*=\s*(?:\(\s*[\w$]+\s*\)|[\w$]+)\s*=>\s*/g;
+  let parsed = 0;
+  while ((match = candidates.exec(source)) && out.size < 1000) {
+    const start = candidates.lastIndex;
+    // A bounded expression, with linked table lookups, rather than arbitrary
+    // hash-looking objects anywhere in the bundle.
+    let fragment = source.slice(start, start + 32768);
+    const stop = fragment.indexOf(';');
+    if (stop >= 0) fragment = fragment.slice(0, stop);
+    if (!/\.\w*js["'`]/i.test(fragment) || !/\}\s*\)*\s*\[\s*[\w$]+\s*\]/.test(fragment)) continue;
+    if (++parsed > 200) break;
+    let expression;
+    try { expression = self.acorn.parseExpressionAt(fragment, 0, { ecmaVersion: 'latest' }); } catch { continue; }
+    const ids = new Set(), parameters = new Set();
+    let hasPublicPath = false, valid = true, visited = 0;
+    const walk = (node, depth = 0) => {
+      if (!node || depth > 40 || ++visited > 5000) { valid = false; return; }
+      if (node.type === 'Literal') return;
+      if (node.type === 'Identifier') { parameters.add(node.name); return; }
+      if (node.type === 'BinaryExpression' && node.operator === '+' || node.type === 'LogicalExpression' && node.operator === '||') {
+        walk(node.left, depth + 1); walk(node.right, depth + 1); return;
+      }
+      if (node.type === 'MemberExpression' && !node.optional) {
+        if (!node.computed && node.object.type === 'Identifier' && node.property.name === 'p') { hasPublicPath = true; return; }
+        if (node.computed && node.object.type === 'ObjectExpression' && node.property.type === 'Identifier') {
+          parameters.add(node.property.name);
+          for (const prop of node.object.properties) {
+            if (prop.type !== 'Property' || prop.computed || prop.method || prop.kind !== 'init' || prop.value.type !== 'Literal' || !['string','number'].includes(typeof prop.value.value)) { valid = false; break; }
+            const key = prop.key.type === 'Identifier' ? prop.key.name : prop.key.value;
+            if (!['string','number'].includes(typeof key)) { valid = false; break; }
+            ids.add(String(key));
+          }
+          return;
+        }
+      }
+      valid = false;
+    };
+    walk(expression);
+    if (!valid || parameters.size !== 1 || !ids.size || ids.size > 1000 || !hasPublicPath && defaultPath === unknown) continue;
+    const parameter = [...parameters][0];
+    const evaluate = (node, id) => {
+      if (node.type === 'Literal') return node.value;
+      if (node.type === 'Identifier') return node.name === parameter ? id : unknown;
+      if (node.type === 'MemberExpression') {
+        if (!node.computed) return paths.has(node.object.name) ? paths.get(node.object.name) : unknown;
+        const prop = node.object.properties.find(p => String(p.key.type === 'Identifier' ? p.key.name : p.key.value) === id);
+        return prop ? prop.value.value : undefined;
+      }
+      const left = evaluate(node.left, id);
+      if (left === unknown) return unknown;
+      if (node.operator === '||') return left || evaluate(node.right, id);
+      const right = evaluate(node.right, id);
+      if (right === unknown || left === undefined || right === undefined) return unknown;
+      return left + right;
+    };
+    for (const id of ids) {
+      const file = evaluate(expression, id);
+      if (typeof file !== 'string' || file.length > 2048 || !/\.(?:[cm]?js)(?:[?#]|$)/i.test(file)) continue;
+      try {
+        const base = hasPublicPath ? baseUrl : new URL(defaultPath || './', baseUrl).href;
+        const url = new URL(file, base);
+        if (/^https?:$/.test(url.protocol) && !url.username && !url.password) out.add(url.href);
+      } catch {}
     }
-
-    for (const pairs of maps) {
-      const hashPairs = pairs.filter(([, v]) => /^[a-f0-9]{5,}$/i.test(v));
-      if (!hashPairs.length) continue;
-      for (const [k, v] of hashPairs.slice(0, 80)) joinChunk(k, v, suffix);
-    }
   }
-
-  return Array.from(out);
-}
-
-function parseSimpleObjectPairs(text) {
-  const pairs = [];
-  const re = /"?([\w@~.-]+)"?\s*:\s*"?([\w@~.-]+)"?/g;
-  let m;
-  while ((m = re.exec(text)) !== null) pairs.push([m[1], m[2]]);
-  return pairs;
-}
-
-function detectChunkSuffix(block) {
-  const m = block.match(/["'](\.[a-f0-9]{5,}\.js|\.chunk\.js|\.js)["']/i) ||
-    block.match(/["']([^"']*\.js)["']/i);
-  if (!m) return '.js';
-  const s = m[1];
-  if (/^\./.test(s)) return s.replace(/^\.[a-f0-9]{5,}/i, '');
-  const tail = s.match(/(\.chunk\.js|\.js)$/i);
-  return tail ? tail[1] : '.js';
-}
-
-function guessWebpackBasePath(source, baseUrl) {
-  const publicPath = source.match(/__webpack_require__\.p\s*=\s*["'`]([^"'`]+)["'`]/) ||
-    source.match(/\bpublicPath\s*[:=]\s*["'`]([^"'`]+)["'`]/);
-  if (publicPath && publicPath[1] && !/^(?:auto|\/)$/.test(publicPath[1])) {
-    try { return new URL(publicPath[1], baseUrl).href; } catch { /* ignore */ }
-  }
-  try {
-    const u = new URL(baseUrl);
-    const parts = u.pathname.split('/');
-    parts.pop();
-    const dir = parts.join('/') + '/';
-    if (/(?:static|assets|js|chunks|_next|_nuxt|dist)\//i.test(dir)) return u.origin + dir;
-    return u.origin + dir;
-  } catch {
-    return '';
-  }
+  return [...out];
 }
 
 function isLikelySourceMapUrl(raw) {
@@ -853,7 +884,7 @@ function renderResults() {
       return (x.ruleName + ' ' + x.match + ' ' + f.file).toLowerCase().includes(keyword);
     }).sort(sortFindingDesc);
     return { ...f, findings };
-  }).filter((f) => f.findings.length > 0 || f.error).sort(sortFileGroupDesc);
+  }).filter((f) => f.findings.length > 0 || (f.error && f.httpStatus !== 404)).sort(sortFileGroupDesc);
 
   els.results.innerHTML = '';
   if (filteredFiles.length === 0) {
