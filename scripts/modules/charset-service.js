@@ -4,7 +4,8 @@
   const FIRST = 340000, LAST = 349999;
   // UA exceptions use priority 99. They must not suppress an explicit charset choice.
   const PRIORITY = 100;
-  const MIME_TYPES = ['text/html', 'application/xhtml+xml', 'text/plain', 'text/xml', 'application/xml'];
+  const MIME_TYPES = ['text/html', 'application/xhtml+xml', 'text/plain', 'text/xml', 'application/xml',
+    'text/javascript', 'application/javascript', 'application/x-javascript', 'text/ecmascript', 'application/ecmascript'];
   let pending = Promise.resolve();
   let headerConditionsSupported = null;
   const EXACT_SUFFIX = '(?:#.*)?$';
@@ -43,22 +44,31 @@
       ruleCount: group.length
     };
   }
-  async function inspect(tabId) {
+  async function inspectOnce(tabId) {
     const tab = await chrome.tabs.get(tabId);
     const origin = originOf(tab.url);
     if (!origin) return { url: tab.url || '', origin: '', supported: false, reason: '仅支持 HTTP/HTTPS 网页；浏览器内置页和本地文件无法修改响应编码。' };
     try {
       const [entry] = await chrome.scripting.executeScript({
-        target: { tabId },
+        target: { tabId }, injectImmediately: true,
         func: () => ({ encoding: document.characterSet, contentType: document.contentType, url: location.href })
       });
       const page = entry?.result;
       if (!page || originOf(page.url) !== origin) throw new Error('页面已切换，请重新读取');
       const mime = String(page.contentType || '').split(';')[0].toLowerCase();
-      return { ...page, origin, contentType: mime, supported: MIME_TYPES.includes(mime), reason: MIME_TYPES.includes(mime) ? '' : '当前内容不是可修改编码的 HTML、纯文本或 XML 页面。' };
+      return { ...page, origin, contentType: mime, supported: MIME_TYPES.includes(mime), reason: MIME_TYPES.includes(mime) ? '' : '当前内容不是可修改编码的 HTML、纯文本、XML 或 JavaScript 文档。' };
     } catch (error) {
-      return { url: tab.url, origin, supported: false, reason: `无法读取页面：${error.message}` };
+      return { url: tab.url, origin, supported: false, readFailed: true, reason: `无法读取页面：${error.message}` };
     }
+  }
+  async function inspect(tabId) {
+    let page = await inspectOnce(tabId);
+    for (const delay of [150, 400, 850]) {
+      if (!page.readFailed) break;
+      await new Promise(resolve => setTimeout(resolve, delay));
+      page = await inspectOnce(tabId);
+    }
+    return page;
   }
   async function getState(tabId) {
     await pending;

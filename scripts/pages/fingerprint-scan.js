@@ -172,6 +172,7 @@ async function startScan(profile = 'standard') {
     state.coverage.skipped += urls.length - cursor;
     const rejected = settled.find(x => x.status === 'rejected');
     if (rejected) throw rejected.reason;
+    if (!state.stopped && (await chrome.tabs.get(tabId)).url !== state.baseUrl) stopScan('目标页面已变化');
   } catch (err) {
     state.coverage.status = 'failed'; coverageIssue(state.baseUrl, err.message || String(err));
   } finally {
@@ -240,6 +241,7 @@ function observedResponses(observed) {
       headers: mainHeaders,
       title: observed.page?.title || '',
       body: observed.page?.html || '',
+      generators: observed.page.generators || [],
       faviconHash: ''
     });
   }
@@ -311,6 +313,8 @@ function collectPageSignalsInPage(maxTextBody = 320000) {
     url: location.href,
     title: document.title || '',
     html: html.slice(0, maxTextBody),
+    generators: Array.from(document.head?.querySelectorAll('meta[name="generator" i][content]') || [])
+      .slice(0, 32).map(node => node.content.trim().slice(0, 160)),
     coverage: [
       html.length > maxTextBody ? 'HTML 采集已截断' : '',
       linkNodes.length > 280 ? '静态链接列表已截断' : '',
@@ -436,7 +440,9 @@ async function fetchFingerprintUrl(url) {
     const type = response.headers.get('content-type') || '';
     const read = await readResponseBytesLimited(response, fingerprintLimits().responseBytes);
     const bytes = read.bytes;
-    const isText = /text|json|xml|javascript|html|css|svg/i.test(type) || bytes.length < 1024 * 1024;
+    const binaryType = /^(?:image\/(?!svg\+xml)|audio\/|video\/|font\/|application\/(?:pdf|zip|wasm)\b)/i.test(type);
+    const isText = !binaryType && (/text|json|xml|javascript|html|css|svg/i.test(type) ||
+      (bytes.length < 1024 * 1024 && !bytes.subarray(0, 512).includes(0)));
     const decoded = isText ? decodeBytes(bytes, type) : '';
     const body = decoded.slice(0, fingerprintLimits().bodyChars);
     const truncated = read.truncated || decoded.length > fingerprintLimits().bodyChars;
@@ -446,7 +452,7 @@ async function fetchFingerprintUrl(url) {
       headers[key.toLowerCase()].push(value);
     });
     const title = titleFromHtml(body);
-    const faviconHash = !read.truncated && response.ok && looksLikeIcon(url, type) ? mmh3Hash32(formatBase64(bytes)) : '';
+    const faviconHash = bytes.length && !read.truncated && response.ok && looksLikeIcon(url, type) ? mmh3Hash32(formatBase64(bytes)) : '';
     return {
       url: response.url || url,
       requestedUrl: url,
@@ -538,7 +544,7 @@ async function analyzedResponseKey(response) {
     response.kind || '',
     response.type || '',
     response.length || String(response.body || '').length,
-    response.faviconHash || '', digest
+    response.faviconHash || '', JSON.stringify(response.generators || []), digest
   ].join('|');
 }
 
@@ -619,7 +625,8 @@ function sourceMaskForMatcher(matcher) {
     url: 4,
     script: 8,
     favicon: 16,
-    header: 32
+    header: 32,
+    generator: 64
   })[matcher.source] || 1;
 }
 
@@ -630,11 +637,13 @@ function responseSourceMask(response) {
   if (response.body && canUseScriptForFingerprint(response, {})) mask |= 8;
   if (response.faviconHash) mask |= 16;
   if (response.headers && Object.keys(response.headers).length) mask |= 32;
+  if (response.generators?.length) mask |= 64;
   return mask;
 }
 
 function matchRule(response, matcher) {
-  if (isErrorLikeResponse(response) && ['body', 'title', 'script'].includes(matcher.source) && !matcher.allowError) return null;
+  if (matcher.source === 'url' && response.status >= 400) return null;
+  if (isErrorLikeResponse(response) && ['body', 'title', 'script', 'generator'].includes(matcher.source) && !matcher.allowError) return null;
   const values = valuesForMatcher(response, matcher);
   for (const item of values) {
     const value = String(item.value || '');
@@ -699,6 +708,7 @@ function valueItem(response, source, key, value) {
 }
 
 function valuesForMatcher(response, matcher) {
+  if (matcher.source === 'generator') return (response.generators || []).map((value, i) => valueItem(response, 'Meta', 'generator:' + i, value));
   if (matcher.source === 'body') return canUseBodyForFingerprint(response, matcher) ? [valueItem(response, 'Body', '', response.body || '')] : [];
   if (matcher.source === 'title') return canUseTitleForFingerprint(response, matcher) ? [valueItem(response, 'Title', '', response.title || '')] : [];
   if (matcher.source === 'url') return [valueItem(response, 'URL', '', `${response.url}\n${response.requestedUrl}`)];
@@ -965,7 +975,7 @@ function setScanState(title, progress) {
 }
 
 function decodeBytes(bytes, contentType) {
-  const charset = /charset=([^;]+)/i.exec(contentType || '')?.[1]?.trim();
+  const charset = /(?:^|;)\s*charset\s*=\s*["']?([^;"'\s]+)/i.exec(contentType || '')?.[1];
   try { return new TextDecoder(charset || 'utf-8').decode(bytes); } catch {}
   try { return new TextDecoder('gb18030').decode(bytes); } catch {}
   return Array.from(bytes.slice(0, 800000)).map((byte) => String.fromCharCode(byte)).join('');
@@ -1007,7 +1017,7 @@ function canUseScriptForFingerprint(response, matcher) {
 
 function isErrorLikeResponse(response) {
   const status = Number(response.status || 0);
-  if ([400, 401, 403, 404, 405, 408, 429, 500, 501, 502, 503, 504, 505].includes(status)) return true;
+  if (status >= 400 && status < 600) return true;
   return isGenericErrorTitle(response.title);
 }
 
@@ -1042,7 +1052,9 @@ function isGenericLoginTitle(value) {
 }
 
 function looksLikeIcon(url, type) {
-  return /icon|image|png|svg|x-icon/i.test(type || '') || /\.(?:ico|png|svg)(?:[?#]|$)/i.test(url || '');
+  const mime = (type || '').split(';')[0].trim().toLowerCase();
+  if (mime && mime !== 'application/octet-stream') return mime.startsWith('image/') || ['application/ico', 'application/x-icon', 'application/vnd.microsoft.icon'].includes(mime);
+  return /\.(?:ico|png|svg)(?:[?#]|$)/i.test(url || '');
 }
 
 function formatBase64(bytes) {

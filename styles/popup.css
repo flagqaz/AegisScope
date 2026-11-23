@@ -2706,3 +2706,9 @@ footer .author-link {
 
 
 
+
+#charsetChoices { min-width: 0; border: 0; padding: 0; margin: 10px 0; }
+#charsetChoices legend { margin-bottom: 6px; }
+#charsetChoices summary { cursor: pointer; margin: 8px 0; }
+.charset-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 6px; }
+.charset-grid button[aria-current="true"] { border-color: #536de8; background: #edf1ff; color: #283e9c; }

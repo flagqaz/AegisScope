@@ -1,6 +1,6 @@
 <div align="center">
   <img src="icons/icon128.png" alt="玄镜 AegisScope" width="88" height="88">
-  <h2>玄镜 AegisScope V2.3.6</h2>
+  <h2>玄镜 AegisScope V2.3.7</h2>
   <p>前端资产采集与安全审计浏览器扩展</p>
 </div>
 
@@ -24,10 +24,10 @@
 
 ## 安装与更新
 
-1. 解压 `玄镜 AegisScope_V2.3.6.zip`。
+1. 解压 `玄镜 AegisScope_V2.3.7.zip`。
 2. 打开 Chrome / Edge 扩展管理页，启用“开发者模式”。
 3. 选择“加载已解压的扩展程序”，指向包含 `manifest.json` 的目录。
-4. 打开插件，确认版本号为 **V2.3.6**，阅读并同意使用说明。
+4. 打开插件，确认版本号为 **V2.3.7**，阅读并同意使用说明。
 
 **更新已有安装：** 覆盖原加载目录后，点击扩展管理页的“重新加载”。如果使用新的版本目录，需要重新加载该目录并停用旧版本。更新后关闭旧工具页，从插件重新打开。
 
@@ -165,7 +165,7 @@ POST、PUT、PATCH、DELETE 等方法执行前需要确认，可能改变业务�
 
 </details>
 
-![V2.3.5 React 控制台](docs/images/react-router-tools.png)
+![V2.3.7 React 控制台](docs/images/react-router-tools.png)
 
 #### Vue Router 分析
 
@@ -201,13 +201,13 @@ Vue 控制台在目标页同源跳转、刷新后清除旧结果并自动分析�
 
 ![UA 修改](docs/images/ua-switcher-overview.png)
 
-**编码修改**：检测页面当前编码，应用指定编码后刷新；支持恢复默认及本站 iframe，适用于 HTTP/HTTPS 的 HTML、纯文本和 XML 页面。
+**编码修改**：检测页面当前编码，应用指定编码后刷新；支持恢复默认及本站 iframe，适用于 HTTP/HTTPS 的 HTML、纯文本、XML 和直接打开的 JavaScript 文件。
 
 新版 Chrome/Edge 按当前标签页的网站生效。旧版浏览器使用地址兼容模式，仅覆盖当前地址和已勾选、已识别的本站 iframe；打开其他地址或新增 iframe 后需要重新应用。同一地址返回的文档类型变化时，先恢复默认。设置在关闭标签页或结束浏览器会话后清除。
 
 BOM 或 Service Worker 缓存可能影响解码结果，以面板检测到的实际编码为准。
 
-![V2.3.5 编码修改](docs/images/charset-switcher-overview.png)
+![V2.3.7 编码修改](docs/images/charset-switcher-overview.png)
 
 ## 第三方参考与许可
 
@@ -216,6 +216,18 @@ BOM 或 Service Worker 缓存可能影响解码结果，以面板检测到的实
 ## 版本记录
 
 以下为各版本的变更记录。当前操作方式以本文功能说明为准。
+
+### V2.3.7
+
+- 补充东方通、宝兰德等 6 项国产中间件和 Halo、米拓、Z-Blog 等多项 CMS 指纹，扩展论坛、电商、网关及静态站点生成器识别，并从响应头或页面生成器声明中提取版本号。
+
+- 指纹扫描过滤错误响应中的产品路径和正文，避免把图标地址返回的 HTML 算成图标指纹。修复二进制响应误报乱码，以及带引号的字符集声明解析错误。
+
+- 编码面板直接显示常用编码，点击即应用并刷新，其他编码可展开选择。
+
+- 修复直接打开 JavaScript 文件时编码面板显示“不可用”的问题。
+
+- 编码面板在页面加载期间尽早读取文档。读取遇到短暂错误会自动重试，持续失败时显示读取原因。
 
 ### V2.3.6
 

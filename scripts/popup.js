@@ -94,8 +94,7 @@ const els = {
   charsetStatus: document.getElementById('charsetStatus'),
   charsetClose: document.getElementById('charsetClose'),
   charsetState: document.getElementById('charsetState'),
-  charsetValue: document.getElementById('charsetValue'),
-  charsetApply: document.getElementById('charsetApply'),
+  charsetChoices: document.getElementById('charsetChoices'),
   charsetReset: document.getElementById('charsetReset'),
   charsetRead: document.getElementById('charsetRead'),
   charsetFrames: document.getElementById('charsetFrames'),
@@ -364,7 +363,10 @@ async function init() {
   els.uaRefresh.addEventListener('click', () => currentTabId && chrome.tabs.reload(currentTabId, { bypassCache: true }));
   els.uaReset.addEventListener('click', resetUaSimple);
   els.uaTest.addEventListener('click', testUaSimple);
-  els.charsetApply.addEventListener('click', () => changeCharset(false));
+  els.charsetChoices.addEventListener('click', event => {
+    const button = event.target.closest('button[data-encoding]');
+    if (button && !els.charsetChoices.disabled) changeCharset(false, button.dataset.encoding);
+  });
   els.charsetReset.addEventListener('click', () => changeCharset(true));
   els.charsetRead.addEventListener('click', loadCharsetState);
   els.clear.addEventListener('click', clearAllRecords);
@@ -556,38 +558,41 @@ let charsetBusy = false;
 let charsetState = null;
 
 function updateCharsetButtons() {
-  els.charsetApply.disabled = charsetBusy || !charsetState?.page?.supported;
+  els.charsetChoices.disabled = charsetBusy || !charsetState?.page?.supported;
   els.charsetReset.disabled = charsetBusy || !charsetState?.ruleCount;
   els.charsetRead.disabled = charsetBusy;
-  els.charsetValue.disabled = charsetBusy || !charsetState?.page?.supported;
   els.charsetFrames.disabled = charsetBusy || !charsetState?.page?.supported;
 }
 
 function renderCharsetState(state) {
   charsetState = state;
-  if (!els.charsetValue.options.length) {
+  const actual = state.page?.encoding || '';
+  const common = document.getElementById('charsetCommon');
+  if (!common.childElementCount) {
+    const more = document.getElementById('charsetMore');
     for (const [value, label] of globalThis.AEGISSCOPE_CHARSETS) {
-      const option = document.createElement('option');option.value = value;option.textContent = label;
-      els.charsetValue.append(option);
+      const button = document.createElement('button');
+      button.type = 'button';
+      button.dataset.encoding = value;
+      button.textContent = label;
+      (['UTF-8', 'GBK', 'GB18030', 'Big5'].includes(value) ? common : more).append(button);
     }
   }
-  const actual = state.page?.encoding || '';
-  const selected = state.enabled ? state.encoding : actual;
-  const profile = globalThis.AEGISSCOPE_CHARSETS.find(([value]) => {
-    try { return new TextDecoder(value).encoding === new TextDecoder(selected).encoding; } catch { return false; }
-  });
-  els.charsetValue.value = state.enabled ? state.encoding : profile?.[0] || 'UTF-8';
+  for (const button of els.charsetChoices.querySelectorAll('button')) {
+    const current = button.dataset.encoding.toLowerCase() === actual.toLowerCase();
+    button.setAttribute('aria-current', String(current));
+  }
   els.charsetFrames.checked = state.enabled && state.includeFrames;
   els.charsetDetected.textContent = actual || '无法读取';
   els.charsetOverride.textContent = state.enabled ? state.encoding : '浏览器默认';
-  els.charsetState.textContent = state.enabled ? state.mode === 'page' ? '兼容模式' : '已设置' : state.page?.supported ? '未设置' : '不可用';
+  els.charsetState.textContent = state.page?.readFailed ? '读取失败' : state.enabled ? state.mode === 'page' ? '兼容模式' : '已设置' : state.page?.supported ? '未设置' : '不可用';
   els.charsetScope.textContent = state.page?.origin
     ? `作用于当前标签页的 ${state.page.origin}；切换网站或关闭标签页后自动清除。`
     : '仅支持 HTTP/HTTPS 网页。';
   if (state.mode === 'page') {
     els.charsetScope.textContent = `旧版兼容模式：仅当前页面地址${state.includeFrames ? '及已识别的本站 iframe' : ''}生效；打开其他地址后需重新应用。`;
   }
-  let message = state.page?.supported ? '选择与页面原始文字对应的编码，然后应用并刷新。' : state.page?.reason || '当前页面无法修改编码';
+  let message = state.page?.supported ? '点击目标编码即可重新读取页面文字。' : state.page?.reason || '当前页面无法修改编码';
   if (state.enabled && actual) {
     let matched = false;
     try { matched = new TextDecoder(actual).encoding === new TextDecoder(state.encoding).encoding; } catch {}
@@ -612,7 +617,7 @@ async function loadCharsetState() {
   } finally { charsetBusy = false;updateCharsetButtons(); }
 }
 
-async function changeCharset(reset) {
+async function changeCharset(reset, encoding) {
   if (charsetBusy || !currentTabId) return;
   charsetBusy = true;updateCharsetButtons();
   els.charsetStatus.textContent = reset ? '正在恢复默认并刷新...' : '正在应用编码并刷新...';
@@ -620,7 +625,7 @@ async function changeCharset(reset) {
   try {
     const result = await chrome.runtime.sendMessage({
       type: reset ? 'RESET_CHARSET' : 'SET_CHARSET', tabId: currentTabId,
-      encoding: els.charsetValue.value, includeFrames: els.charsetFrames.checked,
+      encoding, includeFrames: els.charsetFrames.checked,
       expectedUrl: charsetState?.page?.url
     });
     if (!result?.ok) throw new Error(result?.error || '未收到后台响应');
