@@ -31,7 +31,7 @@
         </div>
         <div class="title-stats">
           <button id="versionBadge" class="version" title="检查更新">
-            <span>V2.3.7</span>
+            <span>V2.3.8</span>
             <i id="updateDot" class="update-dot" hidden></i>
           </button>
           <span id="count" class="badge">0</span>
@@ -46,7 +46,7 @@
             <small>采集 / 识别 / 审计</small>
           </div>
           <div class="action-row primary-actions">
-            <button id="downloadAll" title="保存代码资源或完整页面"><svg class="nav-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3v12m-4-4 4 4 4-4M4 16v5h16v-5"/></svg>保存资产</button>
+            <button id="downloadAll" title="提取网页数据、保存代码资源或单文件页面"><svg class="nav-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3v12m-4-4 4 4 4-4M4 16v5h16v-5"/></svg>提取保存</button>
             <button id="siteSniff" title="网站技术栈、框架、CMS、库与响应头识别"><svg class="nav-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M10 3a7 7 0 1 0 0 14 7 7 0 0 0 0-14m5 12 6 6M7 10h6m-3-3v6"/></svg>网站嗅探</button>
             <button id="beianQuery" title="当前页面备案号、公安备案号和备案链接查询"><svg class="nav-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M5 3h14v18H5zM8 7h8M8 11h8M8 15h5"/></svg>备案查询</button>
             <button id="securityScan" title="对代码资源运行泄露扫描"><svg class="nav-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3 3 7v5c0 5 9 9 9 9s9-4 9-9V7zM8 12l3 3 5-6"/></svg>泄露扫描</button>
@@ -221,6 +221,7 @@
           <span id="sniffStatus">等待识别</span>
         </div>
         <div class="sniff-actions">
+          <label class="sniff-cdn-option" title="从当前页面的脚本和样式表地址识别 cdnjs、jsDelivr 和 unpkg 引入的库"><input id="sniffCdnLibraries" type="checkbox" role="switch">识别 CDN 前端库</label>
           <button id="sniffExport" title="导出网站嗅探结果">导出</button>
           <button id="sniffClose" title="关闭网站嗅探结果">关闭</button>
         </div>
@@ -279,7 +280,7 @@
       <div class="mark mini" aria-hidden="true"><img src="icons/icon48.png" alt=""></div>
       <div>
         <strong>玄镜 AegisScope 使用许可与免责声明</strong>
-        <span>V2.3.7</span>
+        <span>V2.3.8</span>
       </div>
     </div>
     <div class="terms-body">
@@ -302,23 +303,26 @@
 
   <dialog id="saveDialog" class="save-dialog">
     <header>
-      <strong>保存</strong>
+      <strong>提取保存</strong>
       <button id="saveClose" title="关闭">关闭</button>
     </header>
     <div class="save-grid">
+      <button id="extractWebData" class="save-card">
+        <svg class="nav-icon save-icon" viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M3 10h18M9 10v10"/></svg>
+        <strong>提取网页数据</strong>
+        <span>选择表格或列表，预览并导出 CSV 或 Excel。</span>
+      </button>
       <button id="saveJsPackage" class="save-card"><svg class="nav-icon save-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M8 8 4 12l4 4m8-8 4 4-4 4M14 5l-4 14"/></svg>
-        <span class="save-kicker">JS</span>
         <strong>代码资源包</strong>
         <span>保存页面 HTML、JS、SourceMap、JSON、Vue/TS 等代码资源 ZIP。</span>
       </button>
       <button id="saveHtmlSingle" class="save-card"><svg class="nav-icon save-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 3h16v18H4zM4 8h16M7 5.5h.1M10 5.5h.1M8 12h8m-8 4h5"/></svg>
-        <span class="save-kicker">HTML</span>
         <strong>单文件页面</strong>
         <span>将当前页面尽量内联为一个完整 HTML 文件后下载。</span>
       </button>
     </div>
     <div class="save-warning">声明：代码资产中可能存在敏感信息，禁止未授权下载保存代码资产。</div>
-    <div id="saveProgress" class="save-progress">请选择保存模块。</div>
+    <div id="saveProgress" class="save-progress">请选择提取或保存方式。</div>
   </dialog>
 
   <dialog id="updateDialog" class="update-dialog">
@@ -329,7 +333,7 @@
     <div class="update-body">
       <div class="update-version-row">
         <span>当前版本</span>
-        <b id="currentVersionText">V2.3.7</b>
+        <b id="currentVersionText">V2.3.8</b>
       </div>
       <div class="update-version-row">
         <span>最新版本</span>
@@ -374,6 +378,7 @@
   <script src="scripts/modules/charset-profiles.js"></script>
   <script src="scripts/lib/sniff-engine.js"></script>
   <script src="scripts/lib/react-inspect.js"></script>
+  <script src="scripts/lib/zip.js"></script>
   <script src="scripts/popup.js"></script>
 </body>
 </html>

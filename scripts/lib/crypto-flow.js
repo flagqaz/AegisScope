@@ -56,7 +56,8 @@
     while (stack.length) {
       const item = stack.pop(), node = item.node;
       if (++coverage.nodes > MAX_NODES || (coverage.nodes % 1024 === 0 && Date.now() - started > 2500)) {
-        return { findings, coverage: { ...coverage, status: 'limited', reason: '加密参数常量追踪达到语法节点或时间预算' } };
+        const limit = coverage.nodes > MAX_NODES ? '30 万个语法节点' : '2.5 秒时间上限';
+        return { findings, coverage: { ...coverage, status: 'limited', reason: `脚本正文已分析，加密参数常量追踪达到${limit}，仅此项追踪未完成` } };
       }
       let scope = item.scope, conditional = item.conditional;
       if (node.type === 'FunctionDeclaration' && node.id) bind(scope, node.id.name, null, false, true);
@@ -251,7 +252,7 @@
     };
     coverage.status = 'completed';
     for (const { node, scope } of calls) {
-      if (Date.now() - started > 2500) { coverage.status = 'limited'; coverage.reason = '加密参数常量追踪达到时间预算'; break; }
+      if (Date.now() - started > 2500) { coverage.status = 'limited'; coverage.reason = '脚本正文已分析，加密参数常量追踪达到 2.5 秒时间上限，仅此项追踪未完成'; break; }
       const name = apiPath(node.callee, scope, node.start), args = node.arguments;
       const prefix = name.slice(0, name.lastIndexOf('.'));
       const value = (n, receiver = prefix) => resolve(n, scope, node.start, receiver);

@@ -12,7 +12,7 @@
     <div class="brand">
       <div class="mark" aria-hidden="true"><img src="../icons/icon48.png" alt=""></div>
       <div>
-        <h1>玄镜 AegisScope 泄露扫描 <span class="version">V2.3.7</span></h1>
+        <h1>玄镜 AegisScope 泄露扫描 <span class="version">V2.3.8</span></h1>
         <span id="origin" class="origin"></span>
       </div>
     </div>
@@ -24,8 +24,11 @@
       <button id="rescan">重新扫描</button>
       <button id="stopScan" disabled>停止扫描</button>
       <button id="expandedScan" title="提高单文件、资源数量和总量上限，重新扫描当前页面">扩展扫描</button>
-      <button id="exportJson" disabled>导出 JSON</button>
-      <button id="exportMd" disabled>导出 Markdown</button>
+      <div class="scan-export" role="group" aria-label="报告导出">
+        <button id="exportJson" disabled>导出 JSON</button>
+        <button id="exportMd" disabled>导出 Markdown</button>
+        <label title="包含所有命中、无命中资源和完整覆盖说明，忽略当前筛选"><input type="checkbox" id="exportAllResources"> 导出全部资源</label>
+      </div>
     </div>
   </header>
 

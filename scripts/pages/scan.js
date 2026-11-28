@@ -28,6 +28,7 @@ const els = {
   rescan: document.getElementById('rescan'),
   exportJson: document.getElementById('exportJson'),
   exportMd: document.getElementById('exportMd'),
+  exportAllResources: document.getElementById('exportAllResources'),
   confActionable: document.getElementById('conf-actionable'),
   confBreakdown: document.getElementById('conf-breakdown'),
   viewer: document.getElementById('viewer'),
@@ -107,7 +108,7 @@ function renderCoverage() {
   coverageElement.innerHTML = `<strong>${scanning ? '扫描进行中' : c.complete ? '已完成本轮发现资源的扫描' : '扫描范围不完整'}</strong>` +
     `<p>已分析 ${c.analyzed} · 失败 ${c.failed} · 截断 ${c.truncated} · 跳过 ${c.skipped} · ${formatBytes(c.scannedBytes)}</p>` +
     '<p>结果为静态检测线索，不代表凭据有效或漏洞可利用；未加载、无法访问及动态生成的未知资源可能不在本轮范围内。</p>' +
-    (c.issues.length ? `<details><summary>查看 ${c.issues.length} 条覆盖说明（全部随报告导出）</summary><ul>${c.issues.slice(0, 100).map(x => `<li>${escapeHtml(x.url)}：${escapeHtml(x.reason)}</li>`).join('')}</ul>${c.issues.length > 100 ? '<p>更多说明请查看完整报告。</p>' : ''}</details>` : '');
+    (c.issues.length ? `<details><summary>查看 ${c.issues.length} 条覆盖说明</summary><ul>${c.issues.slice(0, 100).map(x => `<li>${escapeHtml(x.url)}：${escapeHtml(x.reason)}</li>`).join('')}</ul>${c.issues.length > 100 ? '<p>勾选“导出全部资源”可查看完整说明。</p>' : ''}</details>` : '');
 }
 function failureResult(item, error, status = 'failed') {
   return { file: item.url, requestedUrl: item.url, kind: item.kind, size: 0, status,
@@ -276,7 +277,7 @@ async function processScanItem(item, enqueue, session = scanSession) {
     encoding: read.encoding, readVia: read.readVia || (item.inline ? 'snapshot' : 'extension'),
     primaryReadError: read.primaryReadError, findings: analyzed.findings, stats: analyzed.stats };
   if (!session.cancelled && item.kind !== 'collected-inline') {
-    for (const url of discoverRelatedCodeUrls(source, actualUrl)) enqueue({ url, kind: /\.map(?:[?#]|$)/i.test(url) ? 'sourcemap' : 'chunk' });
+    for (const url of discoverRelatedCodeUrls(source, actualUrl, item.kind !== 'document' && !item.inline)) enqueue({ url, kind: /\.map(?:[?#]|$)/i.test(url) ? 'sourcemap' : 'chunk' });
     if (item.kind === 'sourcemap' || /\.map(?:[?#]|$)/i.test(item.url)) {
       enqueueSourceMap(source, actualUrl, enqueue, session);
     } else {
@@ -284,7 +285,7 @@ async function processScanItem(item, enqueue, session = scanSession) {
       if (annotation) {
         if (annotation.startsWith('data:')) {
           try { enqueueSourceMap(decodeInlineMap(annotation), actualUrl, enqueue, session); }
-          catch (e) { issue(item.url, `内联 SourceMap 无法解析：${e.message}`, 'sourcemap'); }
+          catch (e) { issue(item.url, `脚本正文已分析，内联 SourceMap 未读取：${e.message}`, 'sourcemap'); }
         } else {
           try { enqueue({ url: new URL(annotation, actualUrl).href, kind: 'sourcemap' }); }
           catch { issue(item.url, 'SourceMap 地址无法解析', 'sourcemap'); }
@@ -534,8 +535,22 @@ function analyzeFile(file, source, meta = {}) {
   return { file, size: new TextEncoder().encode(source).length, findings: result.findings, stats: result.stats };
 }
 
-function discoverRelatedCodeUrls(source, baseUrl) {
+function discoverRelatedCodeUrls(source, baseUrl, externalSource = true) {
   const out = new Set();
+  let directory = '';
+  try { directory = new URL('.', baseUrl).pathname; } catch { /* Inline snapshots may have no URL base. */ }
+  // A bare bundle string has no established resolution base. Do not guess a
+  // nested asset directory when its prefix already occurs at the end of ours.
+  const ambiguousLiteral = raw => {
+    if (!externalSource || !/^[\w-]+\//.test(raw)) return false;
+    const parts = raw.split(/[?#]/, 1)[0].split('/');
+    parts.pop();
+    while (parts.length) {
+      if (directory.endsWith('/' + parts.join('/') + '/')) return true;
+      parts.pop();
+    }
+    return false;
+  };
   const add = (raw, mode = 'script') => {
     if (mode === 'map' ? !isLikelySourceMapUrl(raw) : !isLikelyRuntimeCodeUrl(raw)) return;
     try {
@@ -550,11 +565,11 @@ function discoverRelatedCodeUrls(source, baseUrl) {
   while ((m = jsStringRe.exec(source)) !== null) {
     // Bundler context maps use source module paths as object keys, not URLs.
     if (/^\s*:/.test(source.slice(jsStringRe.lastIndex, jsStringRe.lastIndex + 32))) continue;
-    add(m[1]);
+    if (!ambiguousLiteral(m[1])) add(m[1]);
   }
 
   for (const url of discoverWebpackRuntimeChunks(source, baseUrl)) add(url);
-  for (const url of discoverFrameworkAssets(source, baseUrl)) add(url);
+  for (const url of discoverFrameworkAssets(source, baseUrl, ambiguousLiteral)) add(url);
 
   const imports = /(?:\b(?:import|export)\s+(?:[^;\n]{0,240}?\s+from\s*)?|\b(?:import|require)\s*\(\s*)["']([^"'\s]+)["']/g;
   while ((m = imports.exec(source)) !== null) {
@@ -565,7 +580,7 @@ function discoverRelatedCodeUrls(source, baseUrl) {
   return Array.from(out);
 }
 
-function discoverFrameworkAssets(source, baseUrl) {
+function discoverFrameworkAssets(source, baseUrl, skipLiteral = () => false) {
   const out = new Set();
   const add = (raw) => {
     try {
@@ -583,7 +598,7 @@ function discoverFrameworkAssets(source, baseUrl) {
   for (const re of patterns) {
     let m, count = 0;
     while ((m = re.exec(source)) !== null) {
-      add(m[1]);
+      if (!skipLiteral(m[1])) add(m[1]);
       count++;
     }
   }
@@ -703,16 +718,28 @@ function isLikelyRuntimeCodeUrl(raw) {
 }
 
 function findSourceMapAnnotation(source) {
-  const re = /(?:\/\/[#@]|\/\*[#@])\s*sourceMappingURL=([^\s*]+)/g;
-  let match, value = '';
-  while ((match = re.exec(source))) value = match[1];
+  if (!source.includes('sourceMappingURL=')) return '';
+  let value = '';
+  try {
+    const tokens = self.acorn.tokenizer(source, {
+      ecmaVersion: 'latest',
+      onComment(_block, comment) {
+        const match = /^[#@][ \t]*sourceMappingURL=([^\s]+)\s*$/.exec(comment);
+        if (match) value = match[1];
+      }
+    });
+    while (tokens.getToken().type.label !== 'eof') { /* Read comments without executing source. */ }
+  } catch { /* A truncated script can still contain a complete earlier directive. */ }
   return value;
 }
 function decodeInlineMap(url) {
   const match = /^data:application\/json([^,]*),(.*)$/s.exec(url);
   if (!match) throw new Error('不支持的内联映射格式');
   if (/;base64/i.test(match[1])) {
-    const bytes = Uint8Array.from(atob(decodeURIComponent(match[2])), c => c.charCodeAt(0));
+    let decoded;
+    try { decoded = atob(decodeURIComponent(match[2])); }
+    catch { throw new Error('映射数据不是有效的 Base64 或百分号编码'); }
+    const bytes = Uint8Array.from(decoded, c => c.charCodeAt(0));
     return new TextDecoder('utf-8', { fatal: true }).decode(bytes);
   }
   return decodeURIComponent(match[2]);
@@ -869,22 +896,22 @@ function passConfidenceFilter(fi) {
   return fi.confidence === 'confirmed' || fi.confidence === 'likely';
 }
 
-function renderResults() {
+function visibleResultFiles() {
   const keyword = els.search.value.trim().toLowerCase();
   const sevF = els.severity.value;
   const catF = els.category.value;
-  const grouped = els.groupByFile.checked;
-
-  const filteredFiles = perFileResults.map((f) => {
-    const findings = f.findings.filter((x) => {
+  return getReportFiles((x, f) => {
       if (!passConfidenceFilter(x)) return false;
       if (sevF !== 'all' && x.severity !== sevF) return false;
       if (catF !== 'all' && x.category !== catF) return false;
       if (!keyword) return true;
       return (x.ruleName + ' ' + x.match + ' ' + f.file).toLowerCase().includes(keyword);
-    }).sort(sortFindingDesc);
-    return { ...f, findings };
-  }).filter((f) => f.findings.length > 0 || (f.error && f.httpStatus !== 404)).sort(sortFileGroupDesc);
+  });
+}
+
+function renderResults() {
+  const grouped = els.groupByFile.checked;
+  const filteredFiles = visibleResultFiles();
 
   els.results.innerHTML = '';
   if (filteredFiles.length === 0) {
@@ -918,9 +945,6 @@ function renderResults() {
     wrap.appendChild(head);
     const list = document.createElement('div');
     list.className = 'findings';
-    for (const f of filteredFiles.filter(f => f.error).slice(0, renderLimit)) {
-      els.results.appendChild(renderFileGroup(f)); shown++;
-    }
     const visible = flat.slice(0, Math.max(0, renderLimit - shown));
     for (const item of visible) list.appendChild(renderFinding(item.finding, item.file));
     shown += visible.length;
@@ -957,7 +981,7 @@ function sortFileGroupDesc(a, b) {
 function getReportFiles(filterFn = () => true, includeEmpty = false) {
   const files = perFileResults.map((f) => ({
     ...f,
-    findings: f.findings.filter(filterFn).sort(sortFindingDesc)
+    findings: f.findings.filter(x => filterFn(x, f)).sort(sortFindingDesc)
   }));
   const withFindings = files.filter((f) => f.findings.length > 0).sort(sortFileGroupDesc);
   if (!includeEmpty) return withFindings;
@@ -988,14 +1012,6 @@ function renderFileGroup(f) {
     </span>`;
   wrap.appendChild(head);
   head.addEventListener('click', () => wrap.classList.toggle('collapsed'));
-
-  if (f.error) {
-    const list = document.createElement('div');
-    list.className = 'findings';
-    list.innerHTML = `<div class="empty">此资源未完成扫描: ${escapeHtml(f.error)}</div>`;
-    wrap.appendChild(list);
-    return wrap;
-  }
 
   const list = document.createElement('div');
   list.className = 'findings';
@@ -1070,16 +1086,29 @@ function formatBytes(n) {
   return (n / 1024 / 1024).toFixed(2) + ' MB';
 }
 
+function reportSelection() {
+  const all = els.exportAllResources.checked;
+  const files = all ? getReportFiles(() => true, true) : visibleResultFiles();
+  const coverage = coverageSnapshot();
+  if (!all) {
+    const urls = new Set(files.flatMap(f => [f.file, f.requestedUrl, f.responseUrl]).filter(Boolean));
+    coverage.issues = coverage.issues.filter(issue => urls.has(issue.url));
+  }
+  return { files, coverage, scope: all ? '全部资源' : '当前筛选的命中项' };
+}
+
 async function exportJson() {
   if (!canExport()) return;
+  const report = reportSelection();
   const payload = {
     schemaVersion: 2,
     scanId: scanSession.id,
     origin: els.origin.textContent,
     exportedAt: new Date().toISOString(),
-    coverage: coverageSnapshot(),
+    exportScope: report.scope,
+    coverage: report.coverage,
     aggregate,
-    files: getReportFiles(() => true, true).map((f) => ({
+    files: report.files.map((f) => ({
       file: f.file, size: f.size, error: f.error, status: f.status, truncated: f.truncated,
       requestedUrl: f.requestedUrl, responseUrl: f.responseUrl, parentMap: f.parentMap, encoding: f.encoding,
       kind: f.kind, collectedAt: f.collectedAt, readVia: f.readVia, primaryReadError: f.primaryReadError,
@@ -1100,7 +1129,9 @@ async function exportMd() {
   lines.push(`- 综合风险: **${aggregate.level}** (score=${aggregate.score})`);
   lines.push(`- 高置信/较可信线索: ${aggregate.actionable}（高置信 ${aggregate.byConfidence.confirmed} · 较可信 ${aggregate.byConfidence.likely}）`);
   lines.push(`- 疑似: ${aggregate.byConfidence.suspected}；独立线索 ${aggregate.uniqueFindings}；命中位置 ${aggregate.findings}`);
-  const coverage = coverageSnapshot();
+  const report = reportSelection();
+  const coverage = report.coverage;
+  lines.push(`- 明细范围: ${report.scope}（摘要统计为本轮扫描总数）`);
   lines.push(`- 扫描状态: ${coverage.status}；已分析 ${coverage.analyzed}；失败 ${coverage.failed}；截断 ${coverage.truncated}；跳过 ${coverage.skipped}`);
   lines.push(`- 范围: ${coverage.scope}`);
   lines.push(`- 判定方式: ${coverage.verification}`);
@@ -1133,8 +1164,7 @@ async function exportMd() {
   lines.push('---');
   lines.push('');
 
-  // Both reports include every confidence and every failed resource, independent of UI filters.
-  for (const f of getReportFiles(() => true, true)) {
+  for (const f of report.files) {
     const list = f.findings;
     lines.push(`## ${f.file}`);
     if (f.error) lines.push(`- 未完成: ${f.error}`);

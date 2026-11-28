@@ -778,6 +778,27 @@ body {
   padding: 5px 7px;
   text-align: center;
 }
+.scan-export {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  padding-inline-start: 12px;
+  border-inline-start: 1px solid #dce3ee;
+}
+.actions .scan-export label {
+  min-height: 28px;
+  padding: 0 2px;
+  border: 0;
+  background: transparent;
+  color: #526078;
+  font-size: 13px;
+  white-space: nowrap;
+  cursor: pointer;
+}
+.scan-export input {
+  margin: 0;
+}
 .actions button,
 .actions a.top-author-link,
 .actions a.repo-link {

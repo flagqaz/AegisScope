@@ -132,6 +132,58 @@ let currentTabHost = '';
 let scripts = [];
 let activeMainView = 'sniff';
 let sniffState = { signals: null, findings: [] };
+let findOptionalCdnLibraries = null;
+let cdnPreferenceKey = '';
+let cdnPreferenceRevision = 0;
+
+async function applyCdnPreference(enabled, revision) {
+  const checkbox = document.getElementById('sniffCdnLibraries');
+  checkbox.checked = enabled;
+  if (enabled) {
+    try {
+      const pack = await import('../rules/sniff-cdnjs.mjs');
+      if (revision !== cdnPreferenceRevision) return;
+      findOptionalCdnLibraries = pack.findCdnLibraries;
+    } catch {
+      if (revision !== cdnPreferenceRevision) return;
+      checkbox.checked = false;
+      setStatus('CDN 前端库识别模块加载失败');
+    }
+  } else {
+    findOptionalCdnLibraries = null;
+  }
+  if (sniffState.signals) {
+    renderSniffResults();
+    if (!sniffRunningKey) updateSniffCompletionStatus();
+  }
+}
+
+async function restoreCdnPreference(url) {
+  let key = '';
+  try {
+    const site = new URL(url);
+    if (['http:', 'https:'].includes(site.protocol)) key = 'sniffCdnUntil:' + site.origin;
+  } catch {}
+  if (key === cdnPreferenceKey) return;
+  cdnPreferenceKey = key;
+  const revision = ++cdnPreferenceRevision;
+  findOptionalCdnLibraries = null;
+  document.getElementById('sniffCdnLibraries').checked = false;
+  if (!key) return;
+  try {
+    const stored = await chrome.storage.session.get(key);
+    if (revision === cdnPreferenceRevision && stored[key] > Date.now()) {
+      await applyCdnPreference(true, revision);
+    }
+  } catch {}
+}
+
+function displayedSniffFindings() {
+  const findings = sniffState.findings || [];
+  if (!findOptionalCdnLibraries || !sniffState.signals) return findings;
+  const names = new Set(findings.map(item => item.name.toLowerCase()));
+  return findings.concat(findOptionalCdnLibraries(sniffState.signals).filter(item => !names.has(item.name.toLowerCase())));
+}
 let beianState = { signals: null, result: null };
 const uiActionLocks = new Set();
 let copyUnlockState = { enabled: false, hostEnabled: false, host: '', options: { aggressive: true } };
@@ -220,6 +272,7 @@ async function init() {
     if (id !== currentTabId || (!change.url && change.status !== 'loading')) return;
     cancelSniffWork();
     sniffState = { signals: null, findings: [] };
+    if (change.url) void restoreCdnPreference(change.url);
     if (!els.sniffPanel.hidden) {
       els.sniffStatus.textContent = '目标页面已变化，请重新识别';
       els.sniffResults.innerHTML = '<div class="empty visible">目标页面已变化。</div>';
@@ -228,7 +281,7 @@ async function init() {
   });
   try { currentTabHost = new URL(tab.url).host; } catch { currentTabHost = ''; }
 
-  await restorePersistedSniffCache();
+  await Promise.all([restorePersistedSniffCache(), restoreCdnPreference(tab.url)]);
   scanPage()
     .then(() => loadScripts())
     .catch((err) => setStatus(`代码资产采集失败: ${err?.message || String(err)}`));
@@ -255,6 +308,19 @@ async function init() {
     setActiveActionButton(null);
   });
   els.sniffExport.addEventListener('click', exportSniffJson);
+  document.getElementById('sniffCdnLibraries').addEventListener('change', async ({ target }) => {
+    const revision = ++cdnPreferenceRevision;
+    const enabled = target.checked;
+    if (cdnPreferenceKey && chrome.storage.session) {
+      const save = enabled
+        ? chrome.storage.session.set({ [cdnPreferenceKey]: Date.now() + SNIFF_RESULT_CACHE_TTL })
+        : chrome.storage.session.remove(cdnPreferenceKey);
+      save.catch(() => {
+        if (revision === cdnPreferenceRevision) setStatus('当前选择仅在本次弹窗生效');
+      });
+    }
+    await applyCdnPreference(enabled, revision);
+  });
   els.beianClose.addEventListener('click', () => {
     els.beianPanel.hidden = true;
     setAssetListVisible(true);
@@ -287,6 +353,9 @@ async function init() {
     }
   });
   els.saveClose.addEventListener('click', () => els.saveDialog.close());
+  document.getElementById('extractWebData').addEventListener('click', () => {
+    if (currentTabId) chrome.tabs.create({url: chrome.runtime.getURL('pages/web-data.html?tabId=' + currentTabId)});
+  });
   els.saveJsPackage.addEventListener('click', () => {
     downloadAll();
   });
@@ -1576,7 +1645,7 @@ async function downloadAll() {
 }
 
 function openSaveDialog() {
-  setSaveProgress('请选择保存模块。');
+  setSaveProgress('请选择提取或保存方式。');
   if (typeof els.saveDialog.showModal === 'function') els.saveDialog.showModal();
 }
 
@@ -2034,80 +2103,6 @@ function utf8Bytes(str) {
   return new TextEncoder().encode(str);
 }
 
-function createZip(files) {
-  const localParts = [];
-  const centralParts = [];
-  let offset = 0;
-  const now = new Date();
-  const time = ((now.getHours() & 31) << 11) | ((now.getMinutes() & 63) << 5) | ((now.getSeconds() / 2) & 31);
-  const date = (((now.getFullYear() - 1980) & 127) << 9) | (((now.getMonth() + 1) & 15) << 5) | (now.getDate() & 31);
-
-  for (const file of files) {
-    const nameBytes = utf8Bytes(file.name);
-    const data = file.data;
-    const crc = crc32(data);
-
-    const local = new Uint8Array(30 + nameBytes.length);
-    const lv = new DataView(local.buffer);
-    lv.setUint32(0, 0x04034b50, true);
-    lv.setUint16(4, 20, true);
-    lv.setUint16(6, 0x0800, true);
-    lv.setUint16(8, 0, true);
-    lv.setUint16(10, time, true);
-    lv.setUint16(12, date, true);
-    lv.setUint32(14, crc, true);
-    lv.setUint32(18, data.length, true);
-    lv.setUint32(22, data.length, true);
-    lv.setUint16(26, nameBytes.length, true);
-    local.set(nameBytes, 30);
-    localParts.push(local, data);
-
-    const central = new Uint8Array(46 + nameBytes.length);
-    const cv = new DataView(central.buffer);
-    cv.setUint32(0, 0x02014b50, true);
-    cv.setUint16(4, 20, true);
-    cv.setUint16(6, 20, true);
-    cv.setUint16(8, 0x0800, true);
-    cv.setUint16(10, 0, true);
-    cv.setUint16(12, time, true);
-    cv.setUint16(14, date, true);
-    cv.setUint32(16, crc, true);
-    cv.setUint32(20, data.length, true);
-    cv.setUint32(24, data.length, true);
-    cv.setUint16(28, nameBytes.length, true);
-    cv.setUint32(42, offset, true);
-    central.set(nameBytes, 46);
-    centralParts.push(central);
-
-    offset += local.length + data.length;
-  }
-
-  const centralSize = centralParts.reduce((sum, p) => sum + p.length, 0);
-  const end = new Uint8Array(22);
-  const ev = new DataView(end.buffer);
-  ev.setUint32(0, 0x06054b50, true);
-  ev.setUint16(8, files.length, true);
-  ev.setUint16(10, files.length, true);
-  ev.setUint32(12, centralSize, true);
-  ev.setUint32(16, offset, true);
-
-  return new Blob([...localParts, ...centralParts, end], { type: 'application/zip' });
-}
-
-function crc32(data) {
-  if (!crc32.table) {
-    crc32.table = new Uint32Array(256);
-    for (let i = 0; i < 256; i++) {
-      let c = i;
-      for (let j = 0; j < 8; j++) c = c & 1 ? 0xedb88320 ^ (c >>> 1) : c >>> 1;
-      crc32.table[i] = c >>> 0;
-    }
-  }
-  let crc = 0xffffffff;
-  for (let i = 0; i < data.length; i++) crc = crc32.table[(crc ^ data[i]) & 0xff] ^ (crc >>> 8);
-  return (crc ^ 0xffffffff) >>> 0;
-}
-
 async function collectSniffPageSignals(fast = false) {
   const selectors = fast ? [] : getSniffDomSelectors();
   const [result] = await chrome.scripting.executeScript({
@@ -2227,7 +2222,7 @@ function getSniffSignalKeys() {
 }
 
 function renderSniffResults() {
-  const signals = sniffState.signals || {}, findings = sniffState.findings || [];
+  const signals = sniffState.signals || {}, findings = displayedSniffFindings();
   els.sniffSummary.innerHTML = [
     ['技术', findings.length],
     ['脚本', signals.scriptSrc?.length || 0],
@@ -2453,7 +2448,8 @@ function sniffConfidenceReason(item) {
 }
 
 async function exportSniffJson() {
-  if (!sniffState.findings.length) {
+  const findings = displayedSniffFindings();
+  if (!findings.length) {
     setStatus('暂无网站嗅探结果可导出');
     return;
   }
@@ -2461,7 +2457,7 @@ async function exportSniffJson() {
     generatedAt: new Date().toISOString(),
     url: sniffState.signals?.url || '',
     title: sniffState.signals?.title || '',
-    findings: sniffState.findings,
+    findings,
     coverage: sniffState.signals?.coverage || [],
     documentEpoch: sniffState.signals?.documentEpoch
   };
@@ -2673,6 +2669,48 @@ function buildBeianLinkSignalText(links) {
     .slice(0, 80000);
 }
 
+function beianProviders(query) {
+  return [
+    {
+      name: '极数本源',
+      url: `https://v1.apizero.cn/api/icp?domain=${encodeURIComponent(query)}`,
+      readRecords(payload) {
+        const data = payload?.data;
+        if (payload?.code !== 0 || data?.is_filed !== true || normalizeBeianHost(data.domain) !== query) return [];
+        return [{ ...data, icp: data.icp_code || data.main_licence, owner: data.company_name, type: data.company_type }];
+      }
+    },
+    {
+      name: 'CowMC',
+      url: `https://icp.cowmc.net/query/web?search=${encodeURIComponent(query)}&pageNum=1&pageSize=10`,
+      readRecords(payload) {
+        if (payload?.code !== 200 || payload.success !== true || !Array.isArray(payload.params?.list)) return [];
+        return payload.params.list.filter(row => normalizeBeianHost(row?.domain) === query)
+          .map(row => ({ ...row, icp: row.serviceLicence || row.mainLicence }));
+      }
+    },
+    {
+      name: 'UAPI',
+      url: `https://uapis.cn/api/v1/network/icp?domain=${encodeURIComponent(query)}`,
+      method: 'GET',
+      timeout: 10000
+    },
+    {
+      name: '接口盒子',
+      url: `https://cn.apihz.cn/api/wangzhan/icp.php?id=88888888&key=88888888&domain=${encodeURIComponent(query)}`,
+      backupChannels: ['syicpgx', 'icpf'],
+      method: 'GET',
+      timeout: 10000
+    },
+    {
+      name: '小尘API',
+      url: `https://api.xcvts.cn/api/icp/2?url=${encodeURIComponent(query)}`,
+      method: 'GET',
+      timeout: 10000
+    }
+  ];
+}
+
 async function queryFreeBeianApis(domain, options = {}) {
   const query = normalizeBeianDomain(domain);
   if (!isPublicBeianDomain(query)) return [];
@@ -2687,41 +2725,10 @@ async function queryFreeBeianApis(domain, options = {}) {
       return persisted.results.map((item) => ({ ...item, cached: true }));
     }
   }
-  const apis = [
-    {
-      name: 'UAPI',
-      url: `https://uapis.cn/api/v1/network/icp?domain=${encodeURIComponent(query)}`,
-      method: 'GET',
-      timeout: 10000
-    },
-    {
-      name: '远梦API',
-      url: `https://api.mmp.cc/api/icp?domain=${encodeURIComponent(query)}`,
-      method: 'GET',
-      timeout: 10000
-    },
-    {
-      name: '创信API',
-      url: `https://apis.jxcxin.cn/api/icp?name=${encodeURIComponent(query)}&type=1`,
-      method: 'GET',
-      timeout: 10000
-    },
-    {
-      name: '接口盒子',
-      url: `https://cn.apihz.cn/api/wangzhan/icp.php?id=88888888&key=88888888&domain=${encodeURIComponent(query)}`,
-      method: 'GET',
-      timeout: 10000
-    },
-    {
-      name: '小尘API',
-      url: `https://api.xcvts.cn/api/icp/2?url=${encodeURIComponent(query)}`,
-      method: 'GET',
-      timeout: 10000
-    }
-  ];
+  const apis = beianProviders(query);
   const partialResults = new Array(apis.length);
   let settledCount = 0;
-  const tasks = apis.map((api, index) => queryBeianApi(api, query).then((result) => {
+  const tasks = apis.map((api, index) => queryBeianWithBackup(api, query).then((result) => {
     partialResults[index] = result;
     settledCount += 1;
     if (typeof options.onUpdate === 'function') {
@@ -2746,7 +2753,7 @@ async function getPersistedBeianApiCache(domain) {
     const data = await chrome.storage.local.get(key);
     const cached = data?.[key];
     if (!cached || !Array.isArray(cached.results)) return null;
-    if (Date.now() - Number(cached.time || 0) >= BEIAN_API_CACHE_TTL) {
+    if (cached.schema !== 5 || Date.now() - Number(cached.time || 0) >= BEIAN_API_CACHE_TTL) {
       await chrome.storage.local.remove(key);
       return null;
     }
@@ -2762,6 +2769,7 @@ async function setPersistedBeianApiCache(domain, results) {
     await chrome.storage.local.set({
       [key]: {
         time: Date.now(),
+        schema: 5,
         domain,
         results
       }
@@ -2794,6 +2802,17 @@ async function clearPersistedBeianApiCache() {
   } catch {}
 }
 
+async function queryBeianWithBackup(api, domain) {
+  let result = await queryBeianApi(api, domain);
+  for (const channel of api.backupChannels || []) {
+    if (result.ok) break;
+    const url = new URL(api.url);
+    url.pathname = '/api/wangzhan/' + channel + '.php';
+    result = await queryBeianApi({ ...api, url: url.href, channel }, domain);
+  }
+  return result;
+}
+
 async function queryBeianApi(api, domain) {
   try {
     const { response, data } = await fetchBytesLimited(api.url, {
@@ -2805,7 +2824,19 @@ async function queryBeianApi(api, domain) {
     }, api.timeout || 8500, 1024 * 1024);
     const text = new TextDecoder('utf-8').decode(data);
     const payload = parseMaybeJson(text);
-    const records = normalizeIcpApiPayload(api.name, payload, text, domain);
+    let records = [];
+    if (response.ok && api.channel) {
+      if (Number(payload?.code) === 200) {
+        const item = api.channel === 'syicpgx'
+          ? { ...payload, icp: payload.icpw || payload.icp, owner: payload.mainname, type: payload.maintype, time: payload.uptime }
+          : payload;
+        records = normalizeIcpApiPayload(api.name, item, '', domain);
+      }
+    } else if (response.ok && api.readRecords) {
+      records = normalizeIcpApiPayload(api.name, api.readRecords(payload), '', domain);
+    } else if (response.ok) {
+      records = normalizeIcpApiPayload(api.name, payload, text, domain);
+    }
     return {
       name: api.name,
       ok: response.ok && records.length > 0,
@@ -2886,10 +2917,6 @@ function parseMaybeJson(text) {
   const raw = String(text || '').trim();
   if (!raw) return null;
   try { return JSON.parse(raw); } catch {}
-  const jsonLike = raw.match(/\{[\s\S]*\}|\[[\s\S]*\]/)?.[0];
-  if (jsonLike) {
-    try { return JSON.parse(jsonLike); } catch {}
-  }
   return null;
 }
 
@@ -2897,18 +2924,18 @@ function normalizeIcpApiPayload(source, payload, rawText, domain) {
   const records = [];
   const pushRecord = (item) => {
     const record = normalizeIcpRecord(source, item, domain);
-    if (record.icp || record.owner || record.title || record.domain) records.push(record);
+    if (record.icp && (record.domain === domain || record.domain.endsWith('.' + domain))) records.push(record);
   };
   if (Array.isArray(payload)) payload.forEach(pushRecord);
   else if (payload && typeof payload === 'object') {
     if (payload.icp && typeof payload.icp === 'object') {
-      pushRecord({ ...payload.icp, domain: payload.url || payload.domain || domain });
+      pushRecord({ ...payload.icp, domain: payload.icp.domain || payload.domain || payload.url || domain });
     }
     if (payload.data?.icp?.subject || payload.data?.icp?.website) {
       pushRecord({
         ...(payload.data.icp.subject || {}),
         ...(payload.data.icp.website || {}),
-        domain
+        domain: payload.data.icp.website?.domain || payload.data.domain || payload.domain || domain
       });
     }
     if (Array.isArray(payload.data)) payload.data.forEach(pushRecord);
@@ -2923,7 +2950,7 @@ function normalizeIcpApiPayload(source, payload, rawText, domain) {
       else pushRecord(payload.params);
     }
     if (payload.info && typeof payload.info === 'object') {
-      pushRecord({ ...payload.info, domain });
+      pushRecord({ ...payload.info, domain: payload.info.domain || payload.domain || domain });
     }
     if (Array.isArray(payload.list)) payload.list.forEach(pushRecord);
     else if (payload.list && typeof payload.list === 'object') pushRecord(payload.list);
@@ -2931,20 +2958,18 @@ function normalizeIcpApiPayload(source, payload, rawText, domain) {
     else if (payload.result && typeof payload.result === 'object') pushRecord(payload.result);
     pushRecord(payload);
   }
-  if (!records.length) {
-    const icps = extractBeianFindings(rawText, `接口查询/${source}`)
-      .filter((item) => /备案号/.test(item.type))
-      .map((item) => item.value);
-    for (const icp of icps) pushRecord({ domain, icp });
-  }
+  if (!payload && rawText.trim().length <= 48) pushRecord({ domain, icp: rawText.trim() });
   return dedupeIcpRecords(records);
 }
 
 function normalizeIcpRecord(source, item, domain) {
   const obj = item && typeof item === 'object' ? item : {};
-  const pick = (...keys) => keys.map((key) => obj[key]).find((value) => value !== undefined && value !== null && String(value).trim() !== '');
+  const pick = (...keys) => keys.map((key) => obj[key]).find(value =>
+    (typeof value === 'string' || typeof value === 'number') && String(value).trim() &&
+    String(value).length <= 180 && !/[<>]/.test(value));
   let icp = normalizeBeianValue(pick('icp', 'ICP', 'beian', 'license', 'licence', 'licenseKey', 'mainLicence', 'main_licence', 'mainicp', 'serviceLicence', 'service_licence', 'domain_licence', 'website_licence', 'siteLicense', 'siteLicence', 'nowIcp', 'recordNo', 'record_no', 'icpCode', 'icp_code', 'icpNo', 'icp_no', 'mainLicense', 'serviceLicense', 'DomainIcpNum', '主体备案号', '网站备案号', '网站备案/许可证号', '备案号') || '');
-  if (/^(?:未备案|无|暂无|null|undefined)$/i.test(icp)) icp = '';
+  icp = icp.replace(/－/g, '-');
+  if (!/^(?:[京津沪渝冀豫云滇辽黑湘皖鲁新苏浙赣鄂桂甘陇晋蒙陕秦吉闽贵黔粤青藏川蜀宁琼]|内蒙古)ICP(?:备|证)?\d{5,12}号(?:-\d{1,6})?$/i.test(icp)) icp = '';
   return {
     source,
     domain: normalizeBeianHost(pick('domain', 'Domain', 'domain_name', 'siteDomain', 'site_domain', 'homeUrl', 'web', 'url', 'indexUrl', '网站首页网址', '网站域名', '网站', '主域名') || domain),
@@ -3038,10 +3063,10 @@ function summarizeBeianApiConsistency(apiSources) {
     message = `${success[0].name} 返回备案结果，建议结合官方入口复核`;
   } else if (success.length > 1 && icpValues.length <= 1 && ownerValues.length <= 1) {
     status = '多源一致';
-    message = `${success.length} 个接口返回结果一致`;
+    message = `${success.length} 个来源返回结果一致`;
   } else if (success.length > 1) {
     status = '结果不一致';
-    message = `${success.length} 个接口返回结果存在差异，建议以官方入口复核为准`;
+    message = `${success.length} 个来源返回结果存在差异，建议以官方入口复核为准`;
   }
   return {
     status,
@@ -3069,10 +3094,10 @@ function beianApiMessage(payload, text, status) {
   if (payload && typeof payload === 'object') {
     candidates.push(payload.msg, payload.message, payload.error, payload.reason);
   }
-  const found = candidates.find((item) => item !== undefined && item !== null && String(item).trim());
-  if (found) return String(found).slice(0, 120);
+  const found = candidates.find(item => typeof item === 'string' && item.trim() && item.length <= 120 && !/[<>]/.test(item) && !/成功|success/i.test(item));
+  if (found) return found;
   if (status && status !== 200) return `HTTP ${status}`;
-  return String(text || '未返回备案记录').replace(/\s+/g, ' ').slice(0, 120);
+  return '接口未返回有效备案记录';
 }
 
 function extractBeianFindings(text, source) {
@@ -3220,7 +3245,7 @@ function renderBeianResults() {
   const cacheUsed = (result.apiSources || []).some((item) => item.cached);
   els.beianSummary.innerHTML = [
     ['目标域名', result.queryDomain || '-'],
-    ['接口命中', apiHits],
+    ['命中来源', apiHits],
     ['一致性', consistency.status]
   ].map(([label, value]) => `<div class="beian-stat"><span>${escapeHtml(label)}</span><strong title="${escapeAttr(value)}">${escapeHtml(value)}</strong></div>`).join('');
 
@@ -3234,16 +3259,18 @@ function renderBeianResults() {
     </div>
   `).join('') : '<div class="empty visible">当前页面未发现备案相关链接。</div>';
   if (result.apiSources?.length) {
+    const providers = beianProviders(result.queryDomain || '');
+    const backupCount = providers.reduce((n, api) => n + (api.backupChannels?.length || 0), 0);
     const consistencyHtml = `
       <div class="beian-item beian-source ${beianConsistencyClass(consistency.status)}">
         <strong>多源一致性 · ${escapeHtml(consistency.status)}</strong>
         <code>${escapeHtml(consistency.message)}${cacheUsed ? '（使用缓存）' : ''}</code>
-        <span>命中 ${escapeHtml(consistency.successCount)} / ${escapeHtml(consistency.totalCount)} 个接口</span>
+        <span>命中 ${escapeHtml(consistency.successCount)} / ${providers.length} 个来源 · 已配置 ${providers.length + backupCount} 个接口（含 ${backupCount} 个备用）</span>
       </div>
     `;
     const sourceHtml = result.apiSources.map((item) => `
       <div class="beian-item beian-source ${item.ok ? 'source-ok' : 'source-fail'}">
-        <strong>免费接口 · ${escapeHtml(item.name)}</strong>
+        <strong>查询来源 · ${escapeHtml(item.name)}</strong>
         <code>${escapeHtml(item.ok ? item.message : `未命中 / ${item.message}`)}${item.cached ? '（缓存）' : ''}</code>
       </div>
     `).join('');
@@ -3936,7 +3963,7 @@ async function openSiteSniff(options = {}) {
     if (cached?.signals) {
       sniffState = cached;
       renderSniffResults();
-      els.sniffStatus.textContent = `历史缓存：${sniffState.findings?.length || 0} 项技术，正在核验当前页面…`;
+      els.sniffStatus.textContent = `历史缓存：${displayedSniffFindings().length} 项技术，正在核验当前页面…`;
     }
   }
   const runKey = cacheKey || `${currentTabId}:${currentTabHost || ''}`;
@@ -3968,7 +3995,7 @@ async function openSiteSniff(options = {}) {
     if (cached) {
       sniffState = cached;
       renderSniffResults();
-      els.sniffStatus.textContent = `已显示缓存：${cached.findings.length} 项技术，正在刷新...`;
+      els.sniffStatus.textContent = `已显示缓存：${displayedSniffFindings().length} 项技术，正在刷新...`;
     } else {
       const quickPage = await quickPagePromise;
       if (runSeq !== sniffRunSeq) return;
@@ -3980,7 +4007,7 @@ async function openSiteSniff(options = {}) {
         if (runSeq !== sniffRunSeq) return;
         sniffState = { signals:quickSignals, findings:resolveSniffFindings(quickDetected) };
         renderSniffResults();
-        els.sniffStatus.textContent = `初步识别：${sniffState.findings.length} 项技术，正在补充页面和运行时证据…`;
+        els.sniffStatus.textContent = `初步识别：${displayedSniffFindings().length} 项技术，正在补充页面和运行时证据…`;
       }
     }
     const [pageSignals, runtimeSignals, backgroundSignals] = await Promise.all([
@@ -4131,7 +4158,8 @@ function sameSniffAnalysisInputs(left, right) {
 }
 
 function updateSniffCompletionStatus() {
-  const { signals, findings } = sniffState;
+  const { signals } = sniffState;
+  const findings = displayedSniffFindings();
   const partial = signals?.analysisComplete !== true || !!signals?.coverage?.length;
   els.sniffStatus.textContent = partial
     ? `部分完成：${findings.length} 项技术，覆盖不完整，请查看采集范围说明`

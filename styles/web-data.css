@@ -1,0 +1,8 @@
+:root{font:15px system-ui,sans-serif;color:#192d46;background:#f5f8fb}main{max-width:1500px;margin:28px auto;padding:0 20px}header,section{background:white;padding:20px;border:1px solid #dce4ed;border-radius:14px;margin-bottom:16px}header,.controls,.toolbar{display:flex;align-items:center;gap:12px;flex-wrap:wrap}h1{font-size:23px;margin:0}small,#status{color:#516478;overflow-wrap:anywhere}input,button,select{font:inherit;padding:7px;border:1px solid #c7d4e1;border-radius:6px;background:white}button:enabled{cursor:pointer}button:disabled{opacity:.5}#start{background:#405bd0;color:white}input[type=number]{width:58px}.toolbar strong{margin-right:auto}.grid{overflow:auto;max-height:65vh}table{border-collapse:separate;border-spacing:0;width:100%}td,th{padding:7px;text-align:left;border-bottom:1px solid #dce4ed;max-width:400px;overflow-wrap:anywhere}th{position:sticky;top:0;background:#edf3f9;white-space:nowrap}th input{width:130px}
+.grid td,.grid th{padding:3px 7px;border-right:1px solid #dce4ed}
+.grid td{height:25px;vertical-align:middle}
+.cell-preview{width:0;min-width:100%;line-height:22px;overflow:hidden;white-space:nowrap;text-overflow:ellipsis}
+.grid th input,.grid th button{padding:2px 4px;border:1px solid transparent;background:transparent}
+.grid th input:focus,.grid th button:hover{background:white;border-color:#c7d4e1}
+.grid th .resize{cursor:col-resize;color:#526479}
+#area{max-width:min(32em,80vw)}
